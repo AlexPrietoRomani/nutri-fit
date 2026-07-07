@@ -35,7 +35,7 @@ class MachineIdentificationResponse(BaseModel):
     safety_tips: List[str] = Field(..., description="Consejos de seguridad para su uso")
     confidence_score: float = Field(..., description="Puntaje de confianza (0.0 a 1.0)")
 
-@app.get("/")
+@app.get("/api")
 def read_root():
     """
     Endpoint raíz para verificar el estado básico del servicio.
