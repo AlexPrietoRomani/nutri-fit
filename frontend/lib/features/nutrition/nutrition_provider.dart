@@ -282,7 +282,7 @@ class NutritionProvider extends ChangeNotifier {
           'serving_size_g': 40.0,
         };
       } else {
-        final lastDigit = int.tryParse(barcode.isNotEmpty ? barcode[-1] : '5') ?? 5;
+        final lastDigit = int.tryParse(barcode.isNotEmpty ? barcode.substring(barcode.length - 1) : '5') ?? 5;
         final foodNames = [
           'Yogurt Griego Fage',
           'Barra de Proteína Quest',
@@ -296,16 +296,17 @@ class NutritionProvider extends ChangeNotifier {
           'Queso Cottage Lyncott'
         ];
         
-        final selectedName = foodNames[lastDigit % len(foodNames)]
+        final selectedName = foodNames[lastDigit % foodNames.length];
         mockResult = {
           'barcode': barcode,
-          'food_name': f'{selectedName} (Escaneado)',
-          'calories': float(80 + lastDigit * 25),
-          'protein_g': float(2 + lastDigit * 1.5),
-          'carbs_g': float(5 + lastDigit * 3.5),
-          'fat_g': float(0.5 + lastDigit * 0.8),
+          'food_name': '$selectedName (Escaneado)',
+          'calories': (80 + lastDigit * 25).toDouble(),
+          'protein_g': (2 + lastDigit * 1.5).toDouble(),
+          'carbs_g': (5 + lastDigit * 3.5).toDouble(),
+          'fat_g': (0.5 + lastDigit * 0.8).toDouble(),
           'serving_size_g': 100.0,
-        }
+        };
+      }
 
       await _client
           .schema('nutrition')

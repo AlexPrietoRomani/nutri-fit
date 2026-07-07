@@ -124,3 +124,38 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **🧠 Explicación:** Escribir y verificar las pruebas unitarias e integradas para la lógica de alimentos, macros y la caché de códigos de barra.
 - **Acciones:**
   - `[x]` A3.2.3.1: Crear archivo de pruebas `frontend/test/nutrition_test.dart` simulando los llamados a Supabase de forma correcta.
+
+---
+
+## F4: Construcción - Módulo de Entrenamiento (Strong/LiftLog) [x]
+
+### SF4.1: Catálogo y Creador de Rutinas [x]
+- `[x]` T4.1.1: Precargar tabla `training.exercises` con ejercicios base.
+- `[x]` T4.1.2: Permitir diseño de rutinas personalizadas segmentadas por equipamiento.
+
+### SF4.2: Tracker de Entrenamiento en Vivo [x]
+- `[x]` T4.2.1: Implementar cronómetro y vista interactiva para marcar series (sets) como completados.
+- `[x]` T4.2.2: Registro de datos de peso, reps y RPE en `training.workout_sets`.
+
+---
+
+## F5: Microservicio e IA de Visión (Self-Hosted) [x]
+
+### SF5.1: API Gateway (FastAPI) [x]
+- `[x]` T5.1.1: Implementar endpoint en Python para recibir fotos subidas de Supabase Storage.
+- `[x]` T5.1.2: Configurar llamadas a modelos Vision de Ollama (local) o Gemini (fallback en la nube).
+
+### SF5.2: Detección Automática de Comida y Máquinas [x]
+- `[x]` T5.2.1: Pipeline de detección de calorías y macros de platos a partir de fotos.
+- `[x]` T5.2.2: Pipeline de identificación de máquinas del gimnasio y mapeo de ejercicios aptos.
+
+---
+
+## F6: Dashboard y Métricas de Progreso [x]
+
+### SF6.1: Balance Calórico Real e Interactividad [x]
+- `[x]` T6.1.1: Diseñar e implementar el Dashboard unificado en `dashboard_screen.dart` integrando `NutritionProvider` y `TrainingProvider`.
+- `[x]` T6.1.2: Mostrar balance calórico interactivo: `Objetivo - Ingerido + Quemado` indicando si está en Déficit/Superávit.
+- `[x]` T6.1.3: Agregar barras de macronutrientes diarios e indicador de adherencia semanal.
+- `[x]` T6.1.4: Registrar ruta `/dashboard` y reconfigurar la navegación en `main.dart`.
+- `[x]` T6.1.5: Escribir pruebas unitarias para la fórmula del balance calórico.

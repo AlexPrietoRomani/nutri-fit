@@ -7,6 +7,7 @@ import 'features/nutrition/nutrition_provider.dart';
 import 'features/nutrition/diary_screen.dart';
 import 'features/training/training_provider.dart';
 import 'features/training/workout_screen.dart';
+import 'features/dashboard/dashboard_screen.dart';
 
 void main() async {
   // Asegurar que los bindings de Flutter estén inicializados antes de servicios asíncronos.
@@ -65,7 +66,7 @@ class NutriFitApp extends StatelessWidget {
       routes: {
         '/': (context) => const InitialCheckScreen(),
         '/onboarding': (context) => const OnboardingScreen(),
-        '/dashboard': (context) => const DashboardPlaceholder(),
+        '/dashboard': (context) => const DashboardScreen(),
         '/diary': (context) => const DiaryScreen(),
         '/training': (context) => const WorkoutScreen(),
       },
@@ -114,7 +115,7 @@ class InitialCheckScreen extends StatelessWidget {
         
         final configured = snapshot.data ?? false;
         if (configured) {
-          return const DashboardPlaceholder();
+          return const DashboardScreen();
         } else {
           return const OnboardingScreen();
         }

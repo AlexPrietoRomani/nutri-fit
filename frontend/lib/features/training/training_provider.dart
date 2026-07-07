@@ -387,6 +387,70 @@ class TrainingProvider extends ChangeNotifier {
     }
   }
 
+  List<WorkoutSession> _completedSessions = [];
+  List<WorkoutSet> _completedSets = [];
+
+  List<WorkoutSession> get completedSessions => _completedSessions;
+  List<WorkoutSet> get completedSets => _completedSets;
+
+  double get todayCaloriesBurned {
+    // Estimación: 6 calorías por minuto de entrenamiento realizado.
+    double totalCalories = 0.0;
+    for (final session in _completedSessions) {
+      if (session.endedAt != null) {
+        final durationMin = session.endedAt!.difference(session.startedAt).inMinutes;
+        // Mínimo 15 min por sesión para evitar estimaciones absurdas por entrenamientos vacíos
+        final activeMin = durationMin > 0 ? durationMin : 15;
+        totalCalories += activeMin * 6.0;
+      }
+    }
+    return totalCalories;
+  }
+
+  Future<void> loadCompletedWorkouts(DateTime date) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final client = SupabaseConfig.client;
+      final userId = client.auth.currentUser?.id ?? '00000000-0000-0000-0000-000000000000';
+
+      final startOfDay = DateTime(date.year, date.month, date.day);
+      final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
+
+      final response = await client
+          .schema('training')
+          .from('workout_sessions')
+          .select()
+          .eq('user_id', userId)
+          .gte('started_at', startOfDay.toUtc().toIso8601String())
+          .lte('started_at', endOfDay.toUtc().toIso8601String());
+
+      final List<dynamic> data = response as List<dynamic>;
+      _completedSessions = data.map((json) => WorkoutSession.fromJson(json as Map<String, dynamic>)).toList();
+
+      if (_completedSessions.isNotEmpty) {
+        final sessionIds = _completedSessions.map((s) => s.id).toList();
+        final setsResponse = await client
+            .schema('training')
+            .from('workout_sets')
+            .select()
+            .inFilter('session_id', sessionIds);
+        
+        final List<dynamic> setsData = setsResponse as List<dynamic>;
+        _completedSets = setsData.map((json) => WorkoutSet.fromJson(json as Map<String, dynamic>)).toList();
+      } else {
+        _completedSets.clear();
+      }
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   /// Cancelar el entrenamiento actual sin guardar.
   void cancelActiveWorkout() {
     _activeSession = null;
