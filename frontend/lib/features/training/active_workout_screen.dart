@@ -327,7 +327,7 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                             final exerciseSets = provider.activeSets.where((s) => s.exerciseId == exId).toList();
 
                             return Card(
-                              margin: const EdgeInsets.bottom(16.0),
+                              margin: const EdgeInsets.only(bottom: 16.0),
                               child: Padding(
                                 padding: const EdgeInsets.all(12.0),
                                 child: Column(

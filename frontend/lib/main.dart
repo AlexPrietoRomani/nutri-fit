@@ -49,7 +49,7 @@ class NutriFitApp extends StatelessWidget {
           surface: Color(0xFF1E201E),
           background: Color(0xFF0E0F0E),
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           color: const Color(0xFF1E201E),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),

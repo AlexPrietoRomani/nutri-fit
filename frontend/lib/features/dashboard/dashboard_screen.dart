@@ -390,7 +390,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       remaining.round().toString(),
                       style: const TextStyle(
                         fontSize: 32,
-                        fontWeight: FontWeight.black,
+                        fontWeight: FontWeight.w900,
                         color: Colors.white,
                       ),
                     ),
