@@ -58,19 +58,19 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ---
 
-## F2: Diseño de UI y Mapeo de Eventos en Flutter [ ]
+## F2: Diseño de UI y Mapeo de Eventos en Flutter [x]
 
-### SF2.1: Implementación del Flujo del Dashboard y Onboarding [ ]
+### SF2.1: Implementación del Flujo del Dashboard y Onboarding [x]
 
-#### T2.1.1: UI y Cuestionario del Onboarding [ ]
-- **🧠 Explicación:** Pantalla interactiva en Flutter para capturar datos físicos del usuario al inicio.
-- **Acciones:**
-  - `[ ]` A2.1.1.1: Crear interfaz con carrusel de preguntas en Flutter.
-  - `[ ]` A2.1.1.2: Implementar el cálculo de BMR (Mifflin) local en la app al presionar "Calcular".
+#### T2.1.1: UI y Cuestionario del Onboarding [x]
+- 🧠 Explicación: Pantalla interactiva en Flutter para capturar datos físicos del usuario al inicio.
+- Acciones:
+  - `[x]` A2.1.1.1: Crear interfaz con carrusel de preguntas en Flutter.
+  - `[x]` A2.1.1.2: Implementar el cálculo de BMR (Mifflin) local en la app al presionar "Calcular".
 
-#### T2.1.2: Clic a Base de Datos - Guardar Perfil [ ]
-- **🧠 Explicación:** El clic del botón final en Onboarding debe impactar al backend insertando en `users` y `nutrition.user_goals`.
-- **💡 Cómo hacerlo:**
+#### T2.1.2: Clic a Base de Datos - Guardar Perfil [x]
+- 🧠 Explicación: El clic del botón final en Onboarding debe impactar al backend insertando en `users` y `nutrition.user_goals`.
+- 💡 Cómo hacerlo:
   ```dart
   // Flutter/Supabase insert
   await supabase.from('users').insert({
@@ -83,6 +83,6 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
     'pal_level': pal,
   });
   ```
-- **Acciones:**
-  - `[ ]` A2.1.2.1: Configurar llamada API de Supabase en el controlador del carrusel de onboarding en Flutter.
-  - `[ ]` A2.1.2.2: Escribir tests unitarios para verificar inserciones correctas.
+- Acciones:
+  - `[x]` A2.1.2.1: Configurar llamada API de Supabase en el controlador del carrusel de onboarding en Flutter.
+  - `[x]` A2.1.2.2: Escribir tests unitarios para verificar inserciones correctas.
