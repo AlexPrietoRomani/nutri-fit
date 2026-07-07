@@ -3,7 +3,7 @@ class AppConstants {
   /// URL de Supabase local o producción.
   static const String supabaseUrl = String.fromEnvironment(
     'SUPABASE_URL',
-    defaultValue: 'http://localhost:54322',
+    defaultValue: 'http://localhost:54321',
   );
 
   /// Clave anónima para inicializar el SDK de Supabase.
