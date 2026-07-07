@@ -9,7 +9,7 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ---
 
-## F1: Setup de Infraestructura Modular [ ]
+## F1: Setup de Infraestructura Modular [x]
 
 ### SF1.1: Docker & PostgreSQL Schemas Setup [x]
 
@@ -41,6 +41,20 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **Acciones:**
   - `[x]` A1.1.2.1: Crear script de migración para inicializar los esquemas y tablas básicas.
   - `[x]` A1.1.2.2: Aplicar la migración SQL al contenedor Postgres.
+
+### SF1.2: Configuración Inicial de Flutter [x]
+
+#### T1.2.1: Inicializar Estructura del Frontend y Dependencias [x]
+- **🧠 Explicación:** Crear el scaffolding del proyecto Flutter y configurar las dependencias clave.
+- **Acciones:**
+  - `[x]` A1.2.1.1: Crear estructura de carpetas (`frontend/lib/core`, `frontend/lib/features`, etc.).
+  - `[x]` A1.2.1.2: Configurar `pubspec.yaml` con `supabase_flutter`, `provider` y `uuid`.
+
+#### T1.2.2: Inicialización del SDK de Supabase [x]
+- **🧠 Explicación:** Configurar el punto de entrada de la aplicación y la conexión local a Supabase.
+- **Acciones:**
+  - `[x]` A1.2.2.1: Crear configuración y constantes de inicialización para `localhost:54322`.
+  - `[x]` A1.2.2.2: Crear `main.dart` realizando la llamada a la inicialización del cliente.
 
 ---
 
