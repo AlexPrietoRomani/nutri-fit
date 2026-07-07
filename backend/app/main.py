@@ -228,3 +228,9 @@ async def identify_machine(
         ],
         confidence_score=0.95
     )
+
+# Configurar el servicio de archivos estáticos para producción si la carpeta existe
+static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
+if os.path.exists(static_dir):
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
