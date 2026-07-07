@@ -5,6 +5,8 @@ import 'features/auth/onboarding_provider.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/nutrition/nutrition_provider.dart';
 import 'features/nutrition/diary_screen.dart';
+import 'features/training/training_provider.dart';
+import 'features/training/workout_screen.dart';
 
 void main() async {
   // Asegurar que los bindings de Flutter estén inicializados antes de servicios asíncronos.
@@ -22,6 +24,7 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => OnboardingProvider()),
         ChangeNotifierProvider(create: (_) => NutritionProvider()),
+        ChangeNotifierProvider(create: (_) => TrainingProvider()),
       ],
       child: const NutriFitApp(),
     ),
@@ -64,6 +67,7 @@ class NutriFitApp extends StatelessWidget {
         '/onboarding': (context) => const OnboardingScreen(),
         '/dashboard': (context) => const DashboardPlaceholder(),
         '/diary': (context) => const DiaryScreen(),
+        '/training': (context) => const WorkoutScreen(),
       },
     );
   }
@@ -186,6 +190,22 @@ class DashboardPlaceholder extends StatelessWidget {
                 },
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Reconfigurar Perfil (Onboarding)'),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueAccent,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.of(context).pushNamed('/training');
+                },
+                icon: const Icon(Icons.play_circle_outline_rounded),
+                label: const Text('Ir a Entrenamientos'),
               ),
             ],
           ),
