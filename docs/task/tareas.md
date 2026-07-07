@@ -11,15 +11,15 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ## F1: Setup de Infraestructura Modular [ ]
 
-### SF1.1: Docker & PostgreSQL Schemas Setup [ ]
+### SF1.1: Docker & PostgreSQL Schemas Setup [x]
 
-#### T1.1.1: Configurar Supabase Local y Docker Compose [ ]
+#### T1.1.1: Configurar Supabase Local y Docker Compose [x]
 - **🧠 Explicación:** Dockerizar todo el backend incluyendo base de datos y microservicios de IA.
 - **Acciones:**
-  - `[ ]` A1.1.1.1: Crear `docker-compose.yml` en la raíz incluyendo Supabase, FastAPI y Ollama.
-  - `[ ]` A1.1.1.2: Inicializar stack de Supabase local.
+  - `[x]` A1.1.1.1: Crear `docker-compose.yml` en la raíz incluyendo Supabase, FastAPI y Ollama.
+  - `[x]` A1.1.1.2: Inicializar stack de Supabase local.
 
-#### T1.1.2: Crear Estructura de Esquemas de PostgreSQL [ ]
+#### T1.1.2: Crear Estructura de Esquemas de PostgreSQL [x]
 - **🧠 Explicación:** Crear y aislar las tablas en esquemas `public`, `nutrition` y `training`.
 - **💡 Cómo hacerlo:**
   ```sql
@@ -39,8 +39,8 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   );
   ```
 - **Acciones:**
-  - `[ ]` A1.1.2.1: Crear script de migración para inicializar los esquemas y tablas básicas.
-  - `[ ]` A1.1.2.2: Aplicar la migración SQL al contenedor Postgres.
+  - `[x]` A1.1.2.1: Crear script de migración para inicializar los esquemas y tablas básicas.
+  - `[x]` A1.1.2.2: Aplicar la migración SQL al contenedor Postgres.
 
 ---
 
