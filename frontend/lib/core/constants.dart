@@ -9,6 +9,6 @@ class AppConstants {
   /// Clave anónima para inicializar el SDK de Supabase.
   static const String supabaseAnonKey = String.fromEnvironment(
     'SUPABASE_ANON_KEY',
-    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im51dHJpZml0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDQwMjg4MDAsImV4cCI6MjAyMDAwNDgwMH0.placeholderAnonKey',
+    defaultValue: 'eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJyb2xlIjogImFub24iLCAiaXNzIjogInN1cGFiYXNlIiwgImlhdCI6IDE3MDQwMjg4MDAsICJleHAiOiAyMDIwMDA0ODAwfQ.hfmk6yqP8MsHHLmydBVovkDr8f_7UZHcV5vNnryS2gw',
   );
 }

@@ -1,7 +1,7 @@
 services:
   postgres:
     image: supabase/postgres:15.1.0.117
-    container_name: nutrifit-postgres
+    container_name: nutri-fit-postgres
     ports:
       - "54322:5432"
     environment:
@@ -24,7 +24,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: nutrifit-backend
+    container_name: nutri-fit-backend
     ports:
       - "8000:8000"
     environment:
@@ -39,7 +39,7 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    container_name: nutrifit-ollama
+    container_name: nutri-fit-ollama
     ports:
       - "11434:11434"
     volumes:
@@ -49,7 +49,7 @@ services:
 
   postgrest:
     image: postgrest/postgrest:v12.2.0
-    container_name: nutrifit-postgrest
+    container_name: nutri-fit-postgrest
     ports:
       - "54321:3000"
     environment:
