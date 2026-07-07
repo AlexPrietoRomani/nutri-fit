@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
 import '../../core/supabase_config.dart';
 
 class OnboardingProvider extends ChangeNotifier {
@@ -152,32 +151,9 @@ class OnboardingProvider extends ChangeNotifier {
     try {
       final client = SupabaseConfig.client;
       
-      // Get or create userId
-      String userId;
-      final currentUser = client.auth.currentUser;
-      if (currentUser != null) {
-        userId = currentUser.id;
-      } else {
-        // Mock auth setup for testing if no authenticated user is present:
-        // We will look for an existing test user in auth.users or try to sign up/in.
-        try {
-          final res = await client.auth.signUp(
-            email: 'testuser@nutrifit.com',
-            password: 'password123',
-          );
-          userId = res.user?.id ?? const Uuid().v4();
-        } catch (_) {
-          try {
-            final res = await client.auth.signInWithPassword(
-              email: 'testuser@nutrifit.com',
-              password: 'password123',
-            );
-            userId = res.user?.id ?? const Uuid().v4();
-          } catch (_) {
-            userId = const Uuid().v4();
-          }
-        }
-      }
+      // In dev mode without GoTrue, use a deterministic user ID.
+      // This avoids calls to /auth/v1/ which don't exist in our stack.
+      const userId = '00000000-0000-4000-a000-000000000001';
 
       // 1. Insert into public.users
       await client.from('users').upsert({

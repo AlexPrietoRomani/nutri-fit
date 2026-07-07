@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS public.users (
     body_type TEXT,
     pal_level REAL DEFAULT 1.2 NOT NULL,
     CONSTRAINT pk_users PRIMARY KEY (id),
-    CONSTRAINT fk_users_auth_users FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE,
     CONSTRAINT chk_users_gender CHECK (gender IN ('M', 'F')),
     CONSTRAINT chk_users_body_type CHECK (body_type IN ('ectomorph', 'mesomorph', 'endomorph'))
 );
@@ -128,5 +127,17 @@ CREATE TABLE IF NOT EXISTS training.workout_sets (
 );
 
 COMMENT ON TABLE training.workout_sets IS 'Detalla cada serie completada dentro de una sesión de entrenamiento.';
+
+-- ============================================================================
+-- 5. PERMISOS PARA EL ROL 'anon' (PostgREST)
+-- ============================================================================
+
+GRANT USAGE ON SCHEMA nutrition TO anon;
+GRANT USAGE ON SCHEMA training TO anon;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon;
+GRANT ALL ON ALL TABLES IN SCHEMA nutrition TO anon;
+GRANT ALL ON ALL TABLES IN SCHEMA training TO anon;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA nutrition TO anon;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA training TO anon;
 
 COMMIT;
