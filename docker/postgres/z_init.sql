@@ -4,19 +4,6 @@
 
 BEGIN;
 
--- ============================================================================
--- 1. CREACIÓN DE ESQUEMAS Y REQUISITOS
--- ============================================================================
-
--- Esquema de autenticación (requerido para Supabase y claves foráneas)
-CREATE SCHEMA IF NOT EXISTS auth;
-
--- Tabla de usuarios de autenticación simulada si no existe
-CREATE TABLE IF NOT EXISTS auth.users (
-    id UUID,
-    CONSTRAINT pk_auth_users PRIMARY KEY (id)
-);
-
 -- Crear esquemas del proyecto
 CREATE SCHEMA IF NOT EXISTS nutrition;
 CREATE SCHEMA IF NOT EXISTS training;
