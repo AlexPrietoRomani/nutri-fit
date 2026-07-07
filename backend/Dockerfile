@@ -16,6 +16,8 @@ RUN flutter doctor
 WORKDIR /app
 # Copiar el código del frontend
 COPY frontend/ .
+# Configurar la plataforma web para el proyecto
+RUN flutter create . --platforms web
 # Construir Flutter Web en release
 RUN flutter build web --release
 
