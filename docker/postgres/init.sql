@@ -82,6 +82,21 @@ CREATE TABLE IF NOT EXISTS nutrition.food_logs (
 
 COMMENT ON TABLE nutrition.food_logs IS 'Mantiene el historial diario de alimentos consumidos por el usuario.';
 
+-- Tabla para almacenar la caché de alimentos buscados por código de barras (OpenFoodFacts)
+CREATE TABLE IF NOT EXISTS nutrition.food_cache (
+    barcode TEXT NOT NULL,
+    food_name TEXT NOT NULL,
+    calories REAL NOT NULL,
+    protein_g REAL NOT NULL,
+    carbs_g REAL NOT NULL,
+    fat_g REAL NOT NULL,
+    serving_size_g REAL NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    CONSTRAINT pk_food_cache PRIMARY KEY (barcode)
+);
+
+COMMENT ON TABLE nutrition.food_cache IS 'Almacena temporalmente o como caché los alimentos consultados exitosamente por código de barras.';
+
 -- ============================================================================
 -- 4. TABLAS EN EL ESQUEMA 'training' (Módulo de Entrenamiento)
 -- ============================================================================

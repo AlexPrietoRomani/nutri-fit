@@ -86,3 +86,41 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - Acciones:
   - `[x]` A2.1.2.1: Configurar llamada API de Supabase en el controlador del carrusel de onboarding en Flutter.
   - `[x]` A2.1.2.2: Escribir tests unitarios para verificar inserciones correctas.
+
+
+---
+
+## F3: Construcción - Módulo de Nutrición (Fitia/OpenNutriTracker) [x]
+
+### SF3.1: Diario Alimenticio y Metas Diarias [x]
+
+#### T3.1.1: Controlador y UI del Diario Alimenticio [x]
+- **🧠 Explicación:** Crear la vista dividida del diario (Desayuno, Almuerzo, Cena, Snacks) mostrando consumo calórico contra el objetivo.
+- **Acciones:**
+  - `[x]` A3.1.1.1: Crear la vista principal `diary_screen.dart` con divisiones y barra de progreso.
+  - `[x]` A3.1.1.2: Crear el controlador de estado `nutrition_provider.dart` para manejar los logs del diario y metas.
+
+#### T3.1.2: Conexión con Supabase y CRUD [x]
+- **🧠 Explicación:** Conectar las acciones de agregar y eliminar alimentos con las tablas `nutrition.food_logs` y `nutrition.user_goals`.
+- **Acciones:**
+  - `[x]` A3.1.2.1: Implementar consultas de lectura y borrado en `NutritionProvider`.
+  - `[x]` A3.1.2.2: Vincular botones e inputs de comida manual en `DiaryScreen`.
+
+### SF3.2: Integración de OpenFoodFacts (Escáner de Código de Barras) [x]
+
+#### T3.2.1: Escáner Simulado y Búsqueda de Productos [x]
+- **🧠 Explicación:** Permitir simulación e ingreso de códigos de barras, y mockear la búsqueda de alimentos de OpenFoodFacts.
+- **Acciones:**
+  - `[x]` A3.2.1.1: Implementar cuadro de diálogo para escaneo con códigos de barra de prueba predefinidos en `DiaryScreen`.
+  - `[x]` A3.2.1.2: Crear lógica de simulación de consulta externa y decodificación de macros en `NutritionProvider`.
+
+#### T3.2.2: Caché de Alimentos en Base de Datos [x]
+- **🧠 Explicación:** Almacenar los alimentos consultados con éxito en una caché de base de datos para no repetir la llamada externa.
+- **Acciones:**
+  - `[x]` A3.2.2.1: Crear la tabla `nutrition.food_cache` en PostgreSQL (`init.sql`).
+  - `[x]` A3.2.2.2: Implementar lógica de lectura en caché antes de hacer la búsqueda mock y guardar los resultados del query exitoso.
+
+#### T3.2.3: Pruebas Unitarias e Integración [x]
+- **🧠 Explicación:** Escribir y verificar las pruebas unitarias e integradas para la lógica de alimentos, macros y la caché de códigos de barra.
+- **Acciones:**
+  - `[x]` A3.2.3.1: Crear archivo de pruebas `frontend/test/nutrition_test.dart` simulando los llamados a Supabase de forma correcta.

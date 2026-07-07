@@ -1,0 +1,710 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'nutrition_provider.dart';
+
+class DiaryScreen extends StatefulWidget {
+  const DiaryScreen({super.key});
+
+  @override
+  State<DiaryScreen> createState() => _DiaryScreenState();
+}
+
+class _DiaryScreenState extends State<DiaryScreen> {
+  DateTime _selectedDate = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<NutritionProvider>().loadDailyData(_selectedDate);
+    });
+  }
+
+  void _changeDate(int days) {
+    setState(() {
+      _selectedDate = _selectedDate.add(Duration(days: days));
+    });
+    context.read<NutritionProvider>().loadDailyData(_selectedDate);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0E0F0E),
+      appBar: AppBar(
+        title: const Text(
+          'Diario Alimenticio',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.white),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_today_rounded, color: Color(0xFF2ED573)),
+            onPressed: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _selectedDate,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2030),
+                builder: (context, child) {
+                  return Theme(
+                    data: Theme.of(context).copyWith(
+                      colorScheme: const ColorScheme.dark(
+                        primary: Color(0xFF2ED573),
+                        onPrimary: Colors.black,
+                        surface: Color(0xFF1E201E),
+                        onSurface: Colors.white,
+                      ),
+                    ),
+                    child: child!,
+                  );
+                },
+              );
+              if (picked != null) {
+                setState(() {
+                  _selectedDate = picked;
+                });
+                if (mounted) {
+                  context.read<NutritionProvider>().loadDailyData(_selectedDate);
+                }
+              }
+            },
+          ),
+        ],
+      ),
+      body: Consumer<NutritionProvider>(
+        builder: (context, provider, child) {
+          if (provider.isLoading) {
+            return const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2ED573)),
+              ),
+            );
+          }
+
+          final goals = provider.goals;
+          final targetCalories = goals?.targetCalories ?? 2000;
+          final totalCalories = provider.totalCalories;
+          final remainingCalories = targetCalories - totalCalories;
+
+          return Column(
+            children: [
+              // Date Selector Header
+              _buildDateSelector(),
+              
+              // Calorie Progress Card
+              _buildCalorieCard(targetCalories, totalCalories, remainingCalories, provider),
+
+              // Meal list
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _buildMealSection(context, 'Desayuno', 'breakfast', provider.getMealsOfType('breakfast')),
+                    const SizedBox(height: 16),
+                    _buildMealSection(context, 'Almuerzo', 'lunch', provider.getMealsOfType('lunch')),
+                    const SizedBox(height: 16),
+                    _buildMealSection(context, 'Cena', 'dinner', provider.getMealsOfType('dinner')),
+                    const SizedBox(height: 16),
+                    _buildMealSection(context, 'Snacks', 'snack', provider.getMealsOfType('snack')),
+                    const SizedBox(height: 80), // spacer at bottom
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDateSelector() {
+    final today = DateTime.now();
+    String dateStr;
+    if (_selectedDate.year == today.year && _selectedDate.month == today.month && _selectedDate.day == today.day) {
+      dateStr = 'Hoy';
+    } else if (_selectedDate.year == today.year && _selectedDate.month == today.month && _selectedDate.day == today.day - 1) {
+      dateStr = 'Ayer';
+    } else if (_selectedDate.year == today.year && _selectedDate.month == today.month && _selectedDate.day == today.day + 1) {
+      dateStr = 'Mañana';
+    } else {
+      dateStr = '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      color: const Color(0xFF1E201E),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back_ios_rounded, color: Colors.white, size: 18),
+            onPressed: () => _changeDate(-1),
+          ),
+          Text(
+            dateStr,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
+          ),
+          IconButton(
+            icon: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 18),
+            onPressed: () => _changeDate(1),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCalorieCard(int target, double consumed, double remaining, NutritionProvider provider) {
+    final progress = target > 0 ? (consumed / target).clamp(0.0, 1.0) : 0.0;
+    
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E201E),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFF2E302E)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Calorías Restantes',
+                    style: TextStyle(color: Colors.grey, fontSize: 14),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${remaining.round()} kcal',
+                    style: TextStyle(
+                      color: remaining >= 0 ? const Color(0xFF2ED573) : Colors.redAccent,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    height: 70,
+                    width: 70,
+                    child: CircularProgressIndicator(
+                      value: progress,
+                      backgroundColor: const Color(0xFF2E302E),
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF2ED573)),
+                      strokeWidth: 8,
+                    ),
+                  ),
+                  Text(
+                    '${(progress * 100).round()}%',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          const Divider(color: Color(0xFF2E302E), height: 1),
+          const SizedBox(height: 16),
+          // Macro details
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildMacroProgress('Proteína', provider.totalProtein, provider.goals?.targetProteinG ?? 150, Colors.orangeAccent),
+              _buildMacroProgress('Carbs', provider.totalCarbs, provider.goals?.targetCarbsG ?? 200, Colors.blueAccent),
+              _buildMacroProgress('Grasas', provider.totalFat, provider.goals?.targetFatG ?? 65, Colors.pinkAccent),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMacroProgress(String label, double current, double target, Color color) {
+    final progress = target > 0 ? (current / target).clamp(0.0, 1.0) : 0.0;
+    return Column(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: Colors.grey, fontSize: 12),
+        ),
+        const SizedBox(height: 6),
+        SizedBox(
+          width: 80,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress,
+              backgroundColor: const Color(0xFF2E302E),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+              minHeight: 6,
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '${current.round()}/${target.round()}g',
+          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMealSection(BuildContext context, String title, String mealType, List<FoodLog> logs) {
+    final sectionCalories = logs.fold<double>(0, (sum, item) => sum + item.calories);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E201E),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF2E302E)),
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: true,
+        iconColor: const Color(0xFF2ED573),
+        collapsedIconColor: Colors.white,
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
+            ),
+            Text(
+              '${sectionCalories.round()} kcal',
+              style: const TextStyle(color: Color(0xFF2ED573), fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+          ],
+        ),
+        children: [
+          const Divider(color: Color(0xFF2E302E), height: 1),
+          if (logs.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+              child: Text(
+                'No hay alimentos registrados en esta comida.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: logs.length,
+              separatorBuilder: (context, index) => const Divider(color: Color(0xFF2E302E), height: 1),
+              itemBuilder: (context, index) {
+                final log = logs[index];
+                return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  title: Text(log.foodName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: Text(
+                    '${log.servingSizeG.round()}g  •  P: ${log.proteinG.round()}g  C: ${log.carbsG.round()}g  G: ${log.fatG.round()}g',
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${log.calories.round()} kcal',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                        onPressed: () {
+                          if (log.id != null) {
+                            context.read<NutritionProvider>().deleteFoodLog(log.id!);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          const Divider(color: Color(0xFF2E302E), height: 1),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      side: const BorderSide(color: Color(0xFF2E302E)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    onPressed: () => _showAddFoodManualDialog(context, mealType),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Manual', style: TextStyle(fontSize: 13)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2ED573),
+                      foregroundColor: Colors.black,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    onPressed: () => _showBarcodeScannerMockDialog(context, mealType),
+                    icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                    label: const Text('Escanear', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddFoodManualDialog(BuildContext context, String mealType) {
+    final formKey = GlobalKey<FormState>();
+    String foodName = '';
+    double calories = 0;
+    double protein = 0;
+    double carbs = 0;
+    double fat = 0;
+    double servingSize = 100;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E201E),
+          title: const Text('Agregar Alimento Manual', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    decoration: const InputDecoration(
+                      labelText: 'Nombre del alimento',
+                      labelStyle: TextStyle(color: Colors.grey),
+                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2E302E))),
+                    ),
+                    style: const TextStyle(color: Colors.white),
+                    validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
+                    onSaved: (v) => foodName = v!,
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    decoration: const InputDecoration(
+                      labelText: 'Porción (g)',
+                      labelStyle: TextStyle(color: Colors.grey),
+                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2E302E))),
+                    ),
+                    style: const TextStyle(color: Colors.white),
+                    keyboardType: TextInputType.number,
+                    initialValue: '100',
+                    validator: (v) => v == null || double.tryParse(v) == null ? 'Número válido' : null,
+                    onSaved: (v) => servingSize = double.parse(v!),
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    decoration: const InputDecoration(
+                      labelText: 'Calorías (kcal)',
+                      labelStyle: TextStyle(color: Colors.grey),
+                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2E302E))),
+                    ),
+                    style: const TextStyle(color: Colors.white),
+                    keyboardType: TextInputType.number,
+                    validator: (v) => v == null || double.tryParse(v) == null ? 'Número válido' : null,
+                    onSaved: (v) => calories = double.parse(v!),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          decoration: const InputDecoration(labelText: 'Prot (g)', labelStyle: TextStyle(color: Colors.grey)),
+                          style: const TextStyle(color: Colors.white),
+                          keyboardType: TextInputType.number,
+                          validator: (v) => v == null || double.tryParse(v) == null ? 'Número' : null,
+                          onSaved: (v) => protein = double.parse(v!),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextFormField(
+                          decoration: const InputDecoration(labelText: 'Carb (g)', labelStyle: TextStyle(color: Colors.grey)),
+                          style: const TextStyle(color: Colors.white),
+                          keyboardType: TextInputType.number,
+                          validator: (v) => v == null || double.tryParse(v) == null ? 'Número' : null,
+                          onSaved: (v) => carbs = double.parse(v!),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextFormField(
+                          decoration: const InputDecoration(labelText: 'Gras (g)', labelStyle: TextStyle(color: Colors.grey)),
+                          style: const TextStyle(color: Colors.white),
+                          keyboardType: TextInputType.number,
+                          validator: (v) => v == null || double.tryParse(v) == null ? 'Número' : null,
+                          onSaved: (v) => fat = double.parse(v!),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2ED573), foregroundColor: Colors.black),
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  formKey.currentState!.save();
+                  final success = await context.read<NutritionProvider>().addFoodLog(
+                    foodName: foodName,
+                    calories: calories,
+                    proteinG: protein,
+                    carbsG: carbs,
+                    fatG: fat,
+                    servingSizeG: servingSize,
+                    mealType: mealType,
+                    date: _selectedDate,
+                  );
+                  if (success && mounted) {
+                    Navigator.pop(ctx);
+                  }
+                }
+              },
+              child: const Text('Agregar', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showBarcodeScannerMockDialog(BuildContext context, String mealType) {
+    final barcodes = [
+      {'code': '7501055310884', 'label': 'Atún en Agua Tuny (Alta Proteína)'},
+      {'code': '7501000111207', 'label': 'Leche Entera Lala'},
+      {'code': '0041220516599', 'label': 'Avena Quaker Organic'},
+      {'code': '7501011122334', 'label': 'Código Cualquiera (Crea alimento dinámico)'},
+    ];
+
+    String selectedBarcode = barcodes[0]['code']!;
+    final manualController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E201E),
+              title: const Row(
+                children: [
+                  Icon(Icons.qr_code_scanner_rounded, color: Color(0xFF2ED573)),
+                  SizedBox(width: 10),
+                  Text('Escanear Código de Barras', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Simula el escaneo seleccionando un producto de prueba o ingresando un código manual:',
+                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    dropdownColor: const Color(0xFF1E201E),
+                    value: selectedBarcode,
+                    decoration: const InputDecoration(
+                      labelText: 'Producto de prueba',
+                      labelStyle: TextStyle(color: Colors.grey),
+                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2E302E))),
+                    ),
+                    style: const TextStyle(color: Colors.white),
+                    items: barcodes.map((item) {
+                      return DropdownMenuItem<String>(
+                        value: item['code'],
+                        child: Text(item['label']!, style: const TextStyle(fontSize: 13)),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setStateDialog(() {
+                          selectedBarcode = val;
+                          manualController.clear();
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('O ingresa código manual:', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  TextField(
+                    controller: manualController,
+                    decoration: const InputDecoration(
+                      hintText: 'Ej. 7501234567890',
+                      hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
+                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2E302E))),
+                    ),
+                    style: const TextStyle(color: Colors.white),
+                    keyboardType: TextInputType.number,
+                    onChanged: (val) {
+                      if (val.isNotEmpty) {
+                        selectedBarcode = val;
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2ED573), foregroundColor: Colors.black),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    _searchAndShowBarcodeResult(context, selectedBarcode, mealType);
+                  },
+                  child: const Text('Escanear / Buscar', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _searchAndShowBarcodeResult(BuildContext context, String barcode, String mealType) async {
+    // Show Loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2ED573))),
+      ),
+    );
+
+    final provider = context.read<NutritionProvider>();
+    final result = await provider.searchBarcode(barcode);
+
+    if (context.mounted) {
+      Navigator.pop(context); // Close loading
+    }
+
+    if (result == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se encontró información del producto en OpenFoodFacts.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Show details and ask to add
+    if (context.mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) {
+          final double calories = (result['calories'] as num).toDouble();
+          final double protein = (result['protein_g'] as num).toDouble();
+          final double carbs = (result['carbs_g'] as num).toDouble();
+          final double fat = (result['fat_g'] as num).toDouble();
+          final double servingSize = (result['serving_size_g'] as num).toDouble();
+          final String name = result['food_name'] as String;
+
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E201E),
+            title: const Text('Producto Encontrado', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: const TextStyle(color: Color(0xFF2ED573), fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Text('Código: $barcode', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 12),
+                Text('Tamaño de porción: ${servingSize.round()}g', style: const TextStyle(color: Colors.white, fontSize: 14)),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildQuickMacro('Kcal', calories.round().toString(), Colors.white),
+                    _buildQuickMacro('Prot', '${protein.round()}g', Colors.orangeAccent),
+                    _buildQuickMacro('Carb', '${carbs.round()}g', Colors.blueAccent),
+                    _buildQuickMacro('Gras', '${fat.round()}g', Colors.pinkAccent),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2ED573), foregroundColor: Colors.black),
+                onPressed: () async {
+                  final success = await provider.addFoodLog(
+                    foodName: name,
+                    calories: calories,
+                    proteinG: protein,
+                    carbsG: carbs,
+                    fatG: fat,
+                    servingSizeG: servingSize,
+                    mealType: mealType,
+                    date: _selectedDate,
+                  );
+                  if (success && mounted) {
+                    Navigator.pop(ctx);
+                  }
+                },
+                child: const Text('Añadir al Diario', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      );
+    }
+  }
+
+  Widget _buildQuickMacro(String label, String value, Color color) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+        const SizedBox(height: 4),
+        Text(value, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
+      ],
+    );
+  }
+}
