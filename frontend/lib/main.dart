@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'core/supabase_config.dart';
 import 'features/auth/onboarding_provider.dart';
 import 'features/auth/onboarding_screen.dart';
+import 'features/nutrition/nutrition_provider.dart';
+import 'features/nutrition/diary_screen.dart';
 
 void main() async {
   // Asegurar que los bindings de Flutter estén inicializados antes de servicios asíncronos.
@@ -19,6 +21,7 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => OnboardingProvider()),
+        ChangeNotifierProvider(create: (_) => NutritionProvider()),
       ],
       child: const NutriFitApp(),
     ),
@@ -60,6 +63,7 @@ class NutriFitApp extends StatelessWidget {
         '/': (context) => const InitialCheckScreen(),
         '/onboarding': (context) => const OnboardingScreen(),
         '/dashboard': (context) => const DashboardPlaceholder(),
+        '/diary': (context) => const DiaryScreen(),
       },
     );
   }
@@ -154,6 +158,23 @@ class DashboardPlaceholder extends StatelessWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF2ED573),
                   foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.of(context).pushNamed('/diary');
+                },
+                icon: const Icon(Icons.restaurant_menu_rounded),
+                label: const Text('Ir al Diario Alimenticio'),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  foregroundColor: Colors.grey,
+                  side: const BorderSide(color: Color(0xFF2E302E)),
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
