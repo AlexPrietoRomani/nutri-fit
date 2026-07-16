@@ -178,6 +178,15 @@ class TrainingProvider extends ChangeNotifier {
   DateTime? get activeStartTime => _activeStartTime;
   List<Map<String, dynamic>> get savedRoutines => List.unmodifiable(_savedRoutines);
 
+  /// Rutina marcada como predeterminada (`is_default == true`), o `null` si no
+  /// hay ninguna. Análogo a `NutritionProvider.defaultMealPlan` (T16.5.1).
+  Map<String, dynamic>? get defaultRoutine {
+    for (final routine in _savedRoutines) {
+      if (routine['is_default'] == true) return routine;
+    }
+    return null;
+  }
+
   /// Carga las rutinas guardadas por el usuario (`training.routines`).
   ///
   /// [fetchOverride] permite inyectar la respuesta en tests sin levantar un

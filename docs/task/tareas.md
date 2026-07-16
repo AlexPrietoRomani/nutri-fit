@@ -1079,15 +1079,15 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** widget test — el botón de escanear con cámara existe junto a la entrada manual (no la reemplaza); la entrada manual sigue disparando `_searchAndShowBarcodeResult`. Verificado: `diary_screen_test.dart` 8/8, `flutter build web` compila con `mobile_scanner`.
 - **🎭 Tests de Simulación de Usuario:** desde un dispositivo/navegador con cámara, escanear un código de barras real → ver el producto (OpenFoodFacts) → confirmar → aparece en el Diario.
 
-### SF16.5: Dashboard "Plan de Hoy" [ ]
+### SF16.5: Dashboard "Plan de Hoy" [X]
 
-#### T16.5.1: Sección de rutina y plan de comida por defecto [ ]
+#### T16.5.1: Sección de rutina y plan de comida por defecto [X]
 - **🧠 Explicación:** El Dashboard hoy no muestra nada de planificación — solo balance calórico y adherencia semanal ya calculados. Se añade una sección que muestre la rutina default (¿ya hay una sesión completada hoy?) y el plan de comida default (calorías planificadas vs `NutritionProvider.totalCalories`, ya calculado).
 - **💡 Cómo hacerlo:** en `dashboard_screen.dart`, una nueva `Card`/sección "Plan de Hoy" antes o después de las tarjetas existentes (`_buildCaloricBalanceCard`, `_buildMacrosCard`, `_buildWeeklyAdherenceCard`): consulta la rutina default (`TrainingProvider`) y si hay una `WorkoutSession` completada HOY con ese nombre (o simplemente si hay alguna sesión completada hoy, más simple y suficiente — decide con criterio); consulta el plan de comida default (`NutritionProvider`) y compara la suma de `calories` de sus `meals` contra `provider.totalCalories` de hoy (ya existe). No toques `todayCaloriesBurned` (F6, ya correcto).
 - **Acciones:**
-  - `[ ]` A16.5.1.1: Sección "Plan de Hoy" con rutina default + indicador de "hecho hoy".
-  - `[ ]` A16.5.1.2: Plan de comida default: calorías planificadas vs consumidas.
-- **✅ Tests Unitarios:** widget test — con una rutina default y una sesión completada hoy mockeadas, el indicador de "hecho" aparece; sin sesión completada, no. El total planificado del plan de comida default se calcula correctamente sumando `calories` de `meals`.
+  - `[X]` A16.5.1.1: Sección "Plan de Hoy" con rutina default (getter `defaultRoutine`) + indicador "Hecho hoy"/"Pendiente hoy".
+  - `[X]` A16.5.1.2: Plan de comida default: calorías planificadas vs consumidas (criterio ±10% consistente con el Diario).
+- **✅ Tests Unitarios:** widget test — con una rutina default y una sesión completada hoy mockeadas, el indicador de "hecho" aparece; sin sesión completada, "pendiente"; sin rutina default, texto discreto. Verificado: `dashboard_test.dart` 6/6, suite completa 75 tests verde.
 - **🎭 Tests de Simulación de Usuario:** con una rutina y un plan de comida marcados como predeterminados, abrir el Dashboard → ver la sección "Plan de Hoy" reflejando el estado real del día.
 
 ### SF16.6: Documentación [ ]

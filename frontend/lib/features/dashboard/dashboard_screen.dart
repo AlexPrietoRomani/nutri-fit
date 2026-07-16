@@ -27,7 +27,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (mounted) {
         context.read<OnboardingProvider>().loadProfile();
         context.read<NutritionProvider>().loadDailyData(_selectedDate);
+        context.read<NutritionProvider>().fetchMealPlans();
         context.read<TrainingProvider>().loadCompletedWorkouts(_selectedDate);
+        context.read<TrainingProvider>().fetchSavedRoutines();
       }
     });
   }
@@ -163,6 +165,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     const SizedBox(height: 12),
                     _buildWeeklyAdherenceCard(targetCalories, consumedCalories),
+                    const SizedBox(height: 20),
+
+                    // Plan de Hoy (rutina + comida predeterminadas)
+                    Text(
+                      'Plan de Hoy',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildTodayPlanCard(trainingProv, nutritionProv, consumedCalories),
                     const SizedBox(height: 24),
 
                     // Accesos Rápidos
@@ -645,6 +659,129 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildTodayPlanCard(
+    TrainingProvider trainingProv,
+    NutritionProvider nutritionProv,
+    double consumedCalories,
+  ) {
+    final defaultRoutine = trainingProv.defaultRoutine;
+    final defaultPlan = nutritionProv.defaultMealPlan;
+
+    // ¿Se completó alguna sesión HOY? Reusa la lista ya cargada (endedAt != null
+    // y fecha de finalización == hoy). No consulta Supabase de nuevo.
+    final now = DateTime.now();
+    final bool doneToday = trainingProv.completedSessions.any((s) {
+      final d = s.endedAt;
+      return d != null && d.year == now.year && d.month == now.month && d.day == now.day;
+    });
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // --- Rutina por defecto ---
+            Row(
+              children: [
+                const Icon(Icons.fitness_center_rounded, color: Colors.blueAccent, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: defaultRoutine == null
+                      ? const Text(
+                          'Sin rutina predeterminada — márcala en Entrenamiento',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        )
+                      : Text(
+                          defaultRoutine['name']?.toString() ?? 'Rutina',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                ),
+                if (defaultRoutine != null)
+                  doneToday
+                      ? const Row(
+                          children: [
+                            Icon(Icons.check_circle_rounded, color: Color(0xFF2ED573), size: 18),
+                            SizedBox(width: 4),
+                            Text(
+                              'Hecho hoy',
+                              style: TextStyle(
+                                color: Color(0xFF2ED573),
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        )
+                      : const Text(
+                          'Pendiente hoy',
+                          style: TextStyle(color: Colors.orangeAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+              ],
+            ),
+            const Divider(color: Color(0xFF2E302E), height: 24),
+
+            // --- Plan de comida por defecto ---
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.restaurant_menu_rounded, color: Color(0xFF2ED573), size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: defaultPlan == null
+                      ? const Text(
+                          'Sin plan de comida predeterminado — márcalo en el Diario',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        )
+                      : _buildMealPlanSummary(defaultPlan, consumedCalories),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMealPlanSummary(Map<String, dynamic> plan, double consumedCalories) {
+    final plannedCalories = (plan['meals'] as List? ?? const [])
+        .cast<Map<String, dynamic>>()
+        .fold<double>(0, (sum, m) => sum + ((m['calories'] as num?)?.toDouble() ?? 0));
+
+    // Mismo criterio de ±10% que DiaryScreen._buildPlanVsActual.
+    String deltaText;
+    Color deltaColor;
+    if (consumedCalories > plannedCalories * 1.1) {
+      deltaText = '${(consumedCalories - plannedCalories).round()} kcal de más';
+      deltaColor = Colors.orangeAccent;
+    } else if (consumedCalories < plannedCalories * 0.9) {
+      deltaText = '${(plannedCalories - consumedCalories).round()} kcal de menos';
+      deltaColor = Colors.redAccent;
+    } else {
+      deltaText = 'En línea con el plan';
+      deltaColor = const Color(0xFF2ED573);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Plan: ${plan['name']?.toString() ?? ''} · planificado ${plannedCalories.round()} kcal · consumido ${consumedCalories.round()} kcal',
+          style: const TextStyle(color: Colors.white, fontSize: 13),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          deltaText,
+          style: TextStyle(color: deltaColor, fontSize: 12, fontWeight: FontWeight.bold),
+        ),
+      ],
     );
   }
 
