@@ -4,6 +4,32 @@ Registro forense de bugs, bloqueos y refactors. Formato: síntoma → hipótesis
 
 ---
 
+## 2026-07-16 · INC-009 · GoTrue no arranca: `password authentication failed for user "supabase_auth_admin"`
+
+- **Severidad:** Alta (bloqueante para T10.1.1) · **Estado:** RESUELTO
+- **Contexto:** Levantar el servicio `auth` (GoTrue) recién añadido en `docker-compose.yml` contra `supabase/postgres:15.1.0.117`.
+- **Síntoma:** `docker logs nutri-fit-auth` mostraba `fatal: running db migrations: ... failed SASL auth (FATAL: password authentication failed for user "supabase_auth_admin" (SQLSTATE 28P01))` al conectar `GOTRUE_DB_DATABASE_URL=postgres://supabase_auth_admin:devpassword123@postgres:5432/postgres`, pese a que la contraseña `devpassword123` se había "confirmado" antes por conexión directa.
+- **Hipótesis:** (1) contraseña incorrecta documentada — descartada tras revisar `pg_hba.conf`; (2) el rol no tiene la contraseña seteada a nivel de autenticación de red — confirmada.
+- **Causa raíz:** `pg_hba.conf` de la imagen tiene `trust` para `local` y `127.0.0.1/32`/`::1/128`, pero `scram-sha-256` para cualquier otra conexión (`host all all all scram-sha-256`). La "confirmación" previa de la contraseña se hizo con `psql -h localhost` (trust, ignora la contraseña que se pase), así que nunca se verificó por red. Además `supabase_auth_admin` es un rol protegido ("reserved role"): solo `supabase_admin` (el superusuario real de la imagen, no `postgres`, que no es superuser aquí) puede alterarlo.
+- **Resolución:** `docker exec -e PGPASSWORD=x nutri-fit-postgres psql -U supabase_admin -h 127.0.0.1 -d postgres -c "ALTER ROLE supabase_auth_admin WITH PASSWORD 'devpassword123';"` (conexión trust local, sin tocar `docker/postgres/*.sql`). Incidente secundario menor: al reiniciar `gateway` (nginx) antes de que el contenedor `auth` existiera, nginx falló con `host not found in upstream "auth"` porque resuelve upstreams estáticos solo al arrancar; se resolvió reiniciando `gateway` después de `auth`.
+- **Verificación:** Contenedor efímero `postgres:15-alpine` conectando a `host=postgres user=supabase_auth_admin` confirmó `select 1`; GoTrue arrancó, aplicó 49 migraciones y `GET /health` devolvió 200. `POST /auth/v1/signup` vía el gateway devolvió `access_token` con `role: authenticated`, y `auth.users` mostró la fila con `confirmed_at` no nulo.
+- **Lecciones:** En Supabase self-hosted, alterar roles reservados (`supabase_auth_admin`, `supabase_storage_admin`, etc.) requiere el rol `supabase_admin`, nunca `postgres`. Verificar una contraseña de un rol solo por `-h localhost`/socket local no prueba nada bajo `scram-sha-256`: hay que probarla contra el hostname de red real que usará el servicio consumidor. Además, con upstreams estáticos en nginx, el orden de arranque importa — levantar `auth` antes de reiniciar `gateway`.
+
+---
+
+## 2026-07-16 · INC-010 · INC-009 reaparece tras `docker compose down -v` (T10.2.1/T10.2.2)
+
+- **Severidad:** Media (bloqueaba la verificación, no el código) · **Estado:** RESUELTO
+- **Contexto:** `docker compose down -v && up -d --build` para que `zzz_auth_rls.sql` (FK `auth.users` + RLS, T10.2.1/T10.2.2) corriera sobre un volumen Postgres vacío.
+- **Síntoma:** Igual que INC-009 — `nutri-fit-auth` moría con `password authentication failed for user "supabase_auth_admin"`; `nutri-fit-gateway` fallaba con `host not found in upstream "auth"` por haber arrancado antes que `auth` existiera.
+- **Causa raíz:** La resolución de INC-009 (`ALTER ROLE supabase_auth_admin WITH PASSWORD ...` vía `supabase_admin`) se aplicó a mano sobre el volumen Postgres en su momento y nunca se persistió en ningún script versionado — vive solo en el estado del volumen. Al borrar el volumen (`-v`), el fix se perdió y el problema reapareció idéntico. No es un bug nuevo, es el mismo incidente sin fix declarativo.
+- **Resolución:** Se re-aplicó el mismo comando (`docker exec -e PGPASSWORD=devpassword123 nutri-fit-postgres psql -U supabase_admin -h 127.0.0.1 -d postgres -c "ALTER ROLE supabase_auth_admin WITH PASSWORD 'devpassword123';"`), luego `docker restart nutri-fit-auth` y, tras confirmar que `auth` estaba arriba, `docker restart nutri-fit-gateway`.
+- **Verificación:** Igual que INC-009 — GoTrue aplicó 49 migraciones y sirvió `/auth/v1/signup`; el test de aislamiento RLS end-to-end de T10.2.2 confirmó todo el flujo funcionando.
+- **Lecciones:** Este incidente **volverá a ocurrir en cada `down -v`** mientras el fix no esté en un script versionado. Fuera del alcance de T10.2.1/T10.2.2 (que solo tocan `zzz_auth_rls.sql`), pero queda pendiente para una tarea futura: mover el `ALTER ROLE supabase_auth_admin` a un script que corra con el privilegio adecuado en cada init (p. ej. como parte del entrypoint de `auth` o un script ejecutado por `supabase_admin`), para que la reconstrucción del volumen sea reproducible sin intervención manual.
+- **Intento de fix declarativo (descartado):** se probó un script `docker-entrypoint-initdb.d/zzzz_fix_auth_admin_pw.sh` con `psql -h 127.0.0.1 -U supabase_admin` (la conexión TCP que SÍ funciona una vez el contenedor está arriba, por el `trust` de `pg_hba.conf` a `127.0.0.1/32`). **Falló** con `Connection refused`: durante la fase de bootstrap en que corren los scripts de `docker-entrypoint-initdb.d`, el servidor temporal de Postgres NO escucha por TCP (solo socket Unix), así que `-h 127.0.0.1` no es alcanzable en ese momento aunque sí lo sea después del arranque final. Y por socket Unix, `pg_hba.conf` exige `scram-sha-256` para `supabase_auth_admin` (no hay `trust` local para ese rol específico), así que tampoco vale conectar sin `-h`. Conclusión: el fix declarativo real requeriría un mecanismo que corra DESPUÉS del arranque completo (p. ej. un contenedor sidecar con `depends_on: postgres (healthy)` que aplique el `ALTER ROLE` una vez), no un script de `docker-entrypoint-initdb.d`. Se revirtió el intento para no dejar el volumen en un estado parcialmente inicializado.
+
+---
+
 ## 2026-07-15 · INC-001 · CORS duplicado rompe toda escritura desde la app web
 
 - **Severidad:** Alta (bloqueante) · **Estado:** RESUELTO
