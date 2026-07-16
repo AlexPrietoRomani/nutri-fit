@@ -998,7 +998,7 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ---
 
-## F16: Planificación de Nutrición y Entrenamiento con Seguimiento de Adherencia [ ]
+## F16: Planificación de Nutrición y Entrenamiento con Seguimiento de Adherencia [X]
 
 > Pasa de "solo registrar" a "planificar + comparar contra lo real": plan de comidas y rutina por defecto, comparación planificado-vs-real en el Diario, sección "Plan de Hoy" en el Dashboard, y escáner de código de barras real por cámara. `TrainingProvider.todayCaloriesBurned` (F6) YA calcula el gasto calórico desde sesiones completadas reales — no se toca.
 > **AC de Fase:** `nutrition.meal_plans` (JSONB, RLS) + `is_default` en `meal_plans`/`training.routines` con índice único parcial · botón "Guardar plan" en el chat · marcar/desmarcar predeterminado · comparación planificado-vs-real en el Diario · "Plan de Hoy" en el Dashboard · `mobile_scanner` real · ADR 14.
@@ -1090,13 +1090,13 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** widget test — con una rutina default y una sesión completada hoy mockeadas, el indicador de "hecho" aparece; sin sesión completada, "pendiente"; sin rutina default, texto discreto. Verificado: `dashboard_test.dart` 6/6, suite completa 75 tests verde.
 - **🎭 Tests de Simulación de Usuario:** con una rutina y un plan de comida marcados como predeterminados, abrir el Dashboard → ver la sección "Plan de Hoy" reflejando el estado real del día.
 
-### SF16.6: Documentación [ ]
+### SF16.6: Documentación [X]
 
-#### T16.6.1: ADR 14 en `architecture.md` + esquema en `diseno_db.md` [ ]
+#### T16.6.1: ADR 14 en `architecture.md` + esquema en `diseno_db.md` [X]
 - **🧠 Explicación:** Documentar la nueva capa de planificación (mirroring de `training.routines` para `nutrition.meal_plans`), la decisión de `is_default` + índice único parcial, y la decisión de `mobile_scanner`.
 - **💡 Cómo hacerlo:** ADR 14 con contexto (solo tracking, sin planificación), decisión de esquema (`meal_plans` mirror de `routines`, índice único parcial para `is_default`), decisión de escáner (`mobile_scanner` sobre el mock), y el flujo completo (chat genera → guardar → marcar default → comparación en Diario/Dashboard). `nutrition.meal_plans` + columnas `is_default` documentadas en `diseno_db.md` (secciones 2.2 y 2.3).
 - **Acciones:**
-  - `[ ]` A16.6.1.1: ADR 14 en `architecture.md`.
-  - `[ ]` A16.6.1.2: `nutrition.meal_plans` + `is_default` en `diseno_db.md`.
+  - `[X]` A16.6.1.1: ADR 14 en `architecture.md`.
+  - `[X]` A16.6.1.2: `nutrition.meal_plans` + `is_default` (en `meal_plans` y `training.routines`) en `diseno_db.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
