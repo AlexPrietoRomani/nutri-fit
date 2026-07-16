@@ -5,12 +5,21 @@ import 'package:nutrifit/features/training/active_workout_screen.dart';
 import 'package:nutrifit/features/training/training_provider.dart';
 
 void main() {
-  Exercise buildExercise({required int id, required String name, List<String> imageUrls = const [], String category = 'strength'}) {
+  Exercise buildExercise({
+    required int id,
+    required String name,
+    List<String> imageUrls = const [],
+    String category = 'strength',
+    String? bodyPart,
+    List<String> secondaryMuscles = const [],
+  }) {
     return Exercise(
       id: id,
       name: name,
       category: category,
+      bodyPart: bodyPart,
       targetMuscle: 'chest',
+      secondaryMuscles: secondaryMuscles,
       equipment: 'barbell',
       instructionsEn: const ['Paso 1', 'Paso 2'],
       imageUrls: imageUrls,
@@ -244,5 +253,58 @@ void main() {
     expect(find.text('REPS'), findsOneWidget);
     expect(find.text('RPE'), findsOneWidget);
     expect(find.text('TIEMPO (min)'), findsNothing);
+  });
+
+  Future<void> openAddSheet(WidgetTester tester) async {
+    await tester.tap(find.text('Agregar Ejercicio'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('el buscador de la hoja filtra ejercicios por nombre', (tester) async {
+    final provider = buildProvider(
+      exercises: [
+        buildExercise(id: 1, name: 'Press Banca', bodyPart: 'chest'),
+        buildExercise(id: 2, name: 'Sentadilla', bodyPart: 'legs'),
+      ],
+      sets: const [],
+    );
+
+    await tester.pumpWidget(wrap(provider));
+    await tester.pump();
+    await openAddSheet(tester);
+
+    // Ambos visibles al inicio en la hoja (ListTile).
+    expect(find.widgetWithText(ListTile, 'Press Banca'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, 'Sentadilla'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'press');
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(ListTile, 'Press Banca'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, 'Sentadilla'), findsNothing);
+  });
+
+  testWidgets('el filtro por músculo filtra por body_part o secondary_muscle', (tester) async {
+    final provider = buildProvider(
+      exercises: [
+        buildExercise(id: 1, name: 'Press Banca', bodyPart: 'chest'),
+        buildExercise(id: 2, name: 'Sentadilla', bodyPart: 'legs', secondaryMuscles: const ['chest']),
+        buildExercise(id: 3, name: 'Remo', bodyPart: 'back'),
+      ],
+      sets: const [],
+    );
+
+    await tester.pumpWidget(wrap(provider));
+    await tester.pump();
+    await openAddSheet(tester);
+
+    // Selecciona el chip "chest".
+    await tester.tap(find.widgetWithText(FilterChip, 'chest'));
+    await tester.pumpAndSettle();
+
+    // chest por body_part y sentadilla por secondary_muscle; Remo fuera.
+    expect(find.widgetWithText(ListTile, 'Press Banca'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, 'Sentadilla'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, 'Remo'), findsNothing);
   });
 }

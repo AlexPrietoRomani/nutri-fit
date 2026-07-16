@@ -44,6 +44,16 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
 
   void _showAddExerciseModal(BuildContext context) {
     final provider = context.read<TrainingProvider>();
+    // Músculos (body_part) distintos presentes en el catálogo, para los chips.
+    final muscles = provider.exercises
+        .map((e) => e.bodyPart)
+        .whereType<String>()
+        .toSet()
+        .toList()
+      ..sort();
+    var query = '';
+    String? selectedMuscle; // null == "Todos"
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -58,79 +68,191 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
           maxChildSize: 0.95,
           expand: false,
           builder: (context, scrollController) {
-            return Column(
-              children: [
-                const SizedBox(height: 12),
-                Container(
-                  width: 50,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[700],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Text(
-                    'Seleccionar Ejercicio',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+            return StatefulBuilder(
+              builder: (context, setModalState) {
+                final filtered = provider.exercises.where((e) {
+                  final matchesName =
+                      e.name.toLowerCase().contains(query.toLowerCase());
+                  final matchesMuscle = selectedMuscle == null ||
+                      e.bodyPart == selectedMuscle ||
+                      e.secondaryMuscles.contains(selectedMuscle);
+                  return matchesName && matchesMuscle;
+                }).toList();
+
+                return Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 50,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[700],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
-                  ),
-                ),
-                Expanded(
-                  child: provider.exercises.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No hay ejercicios en el catálogo.',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        )
-                      : ListView.separated(
-                          controller: scrollController,
-                          itemCount: provider.exercises.length,
-                          separatorBuilder: (context, index) => const Divider(color: Colors.grey),
-                          itemBuilder: (context, index) {
-                            final exercise = provider.exercises[index];
-                            final isAdded = provider.activeExercisesIds.contains(exercise.id);
-                            return ListTile(
-                              leading: _ExerciseThumbnail(exercise: exercise),
-                              title: Text(
-                                exercise.name,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                              ),
-                              subtitle: Text(
-                                '${exercise.category} • ${exercise.equipment ?? "Cuerpo"}',
-                                style: const TextStyle(color: Colors.grey, fontSize: 12),
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.info_outline_rounded, color: Colors.grey),
-                                    tooltip: 'Ver detalle',
-                                    onPressed: () => _showExerciseDetail(context, exercise),
-                                  ),
-                                  isAdded
-                                      ? const Icon(Icons.check_circle_rounded, color: Color(0xFF2ED573))
-                                      : const Icon(Icons.add_circle_outline_rounded, color: Colors.grey),
-                                ],
-                              ),
-                              onTap: () {
-                                if (isAdded) {
-                                  provider.removeExerciseFromActiveWorkout(exercise.id);
-                                } else {
-                                  provider.addExerciseToActiveWorkout(exercise.id);
-                                }
-                                Navigator.pop(context);
-                              },
-                            );
-                          },
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Text(
+                        'Seleccionar Ejercicio',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
                         ),
-                ),
-              ],
+                      ),
+                    ),
+                    // Buscador por nombre
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: TextField(
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'Buscar ejercicio...',
+                          hintStyle: const TextStyle(color: Colors.grey),
+                          prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                          isDense: true,
+                          filled: true,
+                          fillColor: Colors.grey[900],
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        onChanged: (val) => setModalState(() => query = val),
+                      ),
+                    ),
+                    // Filtro por músculo (body_part)
+                    if (muscles.isNotEmpty)
+                      SizedBox(
+                        height: 48,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                              child: FilterChip(
+                                label: const Text('Todos'),
+                                selected: selectedMuscle == null,
+                                onSelected: (_) =>
+                                    setModalState(() => selectedMuscle = null),
+                              ),
+                            ),
+                            for (final muscle in muscles)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                                child: FilterChip(
+                                  label: Text(muscle),
+                                  selected: selectedMuscle == muscle,
+                                  onSelected: (_) => setModalState(
+                                    () => selectedMuscle =
+                                        selectedMuscle == muscle ? null : muscle,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(
+                              child: Text(
+                                'No hay ejercicios que coincidan.',
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            )
+                          : ListView.separated(
+                              controller: scrollController,
+                              itemCount: filtered.length,
+                              separatorBuilder: (context, index) =>
+                                  const Divider(color: Colors.grey),
+                              itemBuilder: (context, index) {
+                                final exercise = filtered[index];
+                                final isAdded = provider.activeExercisesIds
+                                    .contains(exercise.id);
+                                return ListTile(
+                                  leading: _ExerciseThumbnail(exercise: exercise),
+                                  title: Text(
+                                    exercise.name,
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600),
+                                  ),
+                                  subtitle: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${exercise.category} • ${exercise.equipment ?? "Cuerpo"}',
+                                        style: const TextStyle(
+                                            color: Colors.grey, fontSize: 12),
+                                      ),
+                                      if (exercise.secondaryMuscles.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 4.0),
+                                          child: Wrap(
+                                            spacing: 4,
+                                            runSpacing: 4,
+                                            children: [
+                                              for (final m
+                                                  in exercise.secondaryMuscles)
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                          horizontal: 6,
+                                                          vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.grey[800],
+                                                    borderRadius:
+                                                        BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    m,
+                                                    style: const TextStyle(
+                                                        color: Colors.white70,
+                                                        fontSize: 10),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                            Icons.info_outline_rounded,
+                                            color: Colors.grey),
+                                        tooltip: 'Ver detalle',
+                                        onPressed: () =>
+                                            _showExerciseDetail(context, exercise),
+                                      ),
+                                      isAdded
+                                          ? const Icon(Icons.check_circle_rounded,
+                                              color: Color(0xFF2ED573))
+                                          : const Icon(
+                                              Icons.add_circle_outline_rounded,
+                                              color: Colors.grey),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    if (isAdded) {
+                                      provider.removeExerciseFromActiveWorkout(
+                                          exercise.id);
+                                    } else {
+                                      provider.addExerciseToActiveWorkout(
+                                          exercise.id);
+                                    }
+                                    Navigator.pop(context);
+                                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                );
+              },
             );
           },
         );
