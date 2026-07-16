@@ -326,21 +326,25 @@ class MealPlanRequest(BaseModel):
     ai: AIConfig
 
 
-@app.post("/generate-meal-plan")
-def generate_meal_plan(req: MealPlanRequest):
+def _build_meal_plan(ai: AIConfig, goals: dict, preferences: Optional[str]) -> dict:
     """Genera un plan de comidas en JSON coherente con las metas del usuario."""
     prompt = (
         f"{FITNESS_SYSTEM}\nGenera un plan de comidas para UN día que cumpla estas metas: "
-        f"{json.dumps(req.goals, ensure_ascii=False)}. "
-        f"Preferencias: {req.preferences or 'ninguna'}.\n"
+        f"{json.dumps(goals, ensure_ascii=False)}. "
+        f"Preferencias: {preferences or 'ninguna'}.\n"
         "Devuelve SOLO un objeto JSON con esta forma exacta:\n"
         '{"meals": [{"meal_type": "breakfast|lunch|dinner|snack", "food_name": "str", '
         '"calories": num, "protein_g": num, "carbs_g": num, "fat_g": num, "serving_size_g": num}]}'
     )
-    data = _parse_json_or_502(_run_ai(req.ai, prompt, want_json=True))
+    data = _parse_json_or_502(_run_ai(ai, prompt, want_json=True))
     if not isinstance(data.get("meals"), list) or not data["meals"]:
         raise HTTPException(status_code=502, detail="El plan de comidas no contiene 'meals'.")
     return data
+
+
+@app.post("/generate-meal-plan")
+def generate_meal_plan(req: MealPlanRequest):
+    return _build_meal_plan(req.ai, req.goals, req.preferences)
 
 
 def _fetch_exercise_candidates(body_part: Optional[str], equipment: Optional[str], limit: int = 40) -> List[dict]:
@@ -374,27 +378,70 @@ class WorkoutPlanRequest(BaseModel):
     ai: AIConfig
 
 
-@app.post("/generate-workout-plan")
-def generate_workout_plan(req: WorkoutPlanRequest):
+def _build_workout_plan(ai: AIConfig, goal: Optional[str], body_part: Optional[str], equipment: Optional[str]) -> dict:
     """Genera una rutina eligiendo SOLO ejercicios reales del catálogo."""
-    candidates = _fetch_exercise_candidates(req.body_part, req.equipment)
+    candidates = _fetch_exercise_candidates(body_part, equipment)
     if not candidates:
         raise HTTPException(status_code=404, detail="No hay ejercicios que coincidan con el filtro.")
     valid_ids = {c["id"] for c in candidates}
     catalogo = json.dumps(candidates, ensure_ascii=False)
     prompt = (
-        f"{FITNESS_SYSTEM}\nArma una rutina para el objetivo: {req.goal or 'general'}.\n"
+        f"{FITNESS_SYSTEM}\nArma una rutina para el objetivo: {goal or 'general'}.\n"
         f"Elige ejercicios SOLO de este catálogo (usa exactamente sus id): {catalogo}\n"
         "Devuelve SOLO un objeto JSON con esta forma:\n"
         '{"items": [{"exercise_id": int, "sets": int, "reps": int, "rpe": num}]}'
     )
-    data = _parse_json_or_502(_run_ai(req.ai, prompt, want_json=True))
+    data = _parse_json_or_502(_run_ai(ai, prompt, want_json=True))
     items = data.get("items")
     if not isinstance(items, list):
         raise HTTPException(status_code=502, detail="La rutina no contiene 'items'.")
     # Descartar ejercicios alucinados (id fuera del catálogo consultado)
     filtered = [it for it in items if it.get("exercise_id") in valid_ids]
     return {"items": filtered}
+
+
+@app.post("/generate-workout-plan")
+def generate_workout_plan(req: WorkoutPlanRequest):
+    return _build_workout_plan(req.ai, req.goal, req.body_part, req.equipment)
+
+
+class ChatPlanRequest(BaseModel):
+    message: str
+    profile: Optional[dict] = None
+    ai: AIConfig
+
+
+class ChatPlanResponse(BaseModel):
+    reply: str
+    workout: Optional[dict] = None
+    meal_plan: Optional[dict] = None
+
+
+def _extract_intent(ai: AIConfig, message: str) -> dict:
+    """Usa el LLM para clasificar qué quiere el usuario (rutina/plan de comidas/equipo)."""
+    prompt = (
+        f"Analiza este mensaje de un usuario de una app de fitness: \"{message}\"\n"
+        "Devuelve SOLO un JSON con esta forma exacta:\n"
+        '{"wants_workout": bool, "wants_meal_plan": bool, '
+        '"equipment": ["lista de implementos mencionados en texto libre"], '
+        '"has_cardio_equipment": bool, '
+        '"goal": "weight_loss|muscle_gain|maintenance", "preferences": "string o null"}'
+    )
+    return _parse_json_or_502(_run_ai(ai, prompt, want_json=True))
+
+
+def _build_cardio_block(ai: AIConfig, equipment_list: list, goal: Optional[str]) -> str:
+    """Describe un bloque de cardio en texto libre (nunca un exercise_id: el catálogo
+    real no tiene equipo de cardio, así que inventar un id rompería el filtro
+    anti-alucinación). Se arma localmente con reglas simples en vez de otra llamada
+    al LLM: es determinista, gratis y suficiente para una frase descriptiva.
+    """
+    equipo = next((e for e in equipment_list if "caminadora" in e.lower() or "treadmill" in e.lower()), None)
+    if not equipo:
+        equipo = ", ".join(equipment_list) if equipment_list else "cardio"
+    if goal == "weight_loss":
+        return f"20-30 min en {equipo} a ritmo moderado (6-8 km/h), para maximizar el déficit calórico."
+    return f"15-20 min en {equipo} a ritmo ligero-moderado como calentamiento o acondicionamiento."
 
 
 class ProgressRequest(BaseModel):
@@ -410,6 +457,36 @@ def analyze_progress(req: ProgressRequest):
         f"recomendaciones accionables:\n{json.dumps(req.summary, ensure_ascii=False)}"
     )
     return {"analysis": _run_ai(req.ai, prompt)}
+
+
+@app.post("/chat-plan", response_model=ChatPlanResponse)
+def chat_plan(req: ChatPlanRequest):
+    """Orquestador: interpreta un mensaje libre y arma rutina y/o plan de comidas."""
+    intent = _extract_intent(req.ai, req.message)
+    workout = meal_plan = None
+    if intent.get("wants_workout"):
+        equipment_mentioned = [e.lower() for e in intent.get("equipment", [])]
+        equipment_real = "kettlebells" if any(
+            "kettlebell" in e or "pesa rusa" in e for e in equipment_mentioned
+        ) else None
+        try:
+            workout = _build_workout_plan(req.ai, intent.get("goal"), None, equipment_real)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            # Sin equipo reconocible en el catálogo real: degradar en vez de tumbar
+            # todo el endpoint (el usuario puede seguir queriendo su meal_plan).
+            workout = {"items": []}
+        if intent.get("has_cardio_equipment"):
+            workout["cardio_block"] = _build_cardio_block(req.ai, intent.get("equipment", []), intent.get("goal"))
+    if intent.get("wants_meal_plan"):
+        # Sin profile (chat suelto), usamos el objetivo detectado en el mensaje como meta
+        # mínima: un dict de goals vacío hace que el LLM rechace la petición (probado con
+        # gemma4:e4b), y aquí no hay perfil real del que sacar target_calories/macros.
+        goals = (req.profile or {}).get("goals") or {"objetivo": intent.get("goal") or "maintenance"}
+        meal_plan = _build_meal_plan(req.ai, goals, intent.get("preferences"))
+    reply = _run_ai(req.ai, f"{FITNESS_SYSTEM}\nResume en 2-3 frases, en español, qué generaste en respuesta a: \"{req.message}\"")
+    return ChatPlanResponse(reply=reply, workout=workout, meal_plan=meal_plan)
 
 
 # Configurar el servicio de archivos estáticos para producción si la carpeta existe
