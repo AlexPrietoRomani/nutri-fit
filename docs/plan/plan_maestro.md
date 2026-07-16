@@ -218,3 +218,23 @@ Este documento detalla la planificación del desarrollo de Nutri-Fit, incluyendo
 - **F14.SF3: Verificación E2E real + Documentación**
   - T14.3.1: E2E real contra Mailpit (extraer el link del correo vía su API, completar el flujo, confirmar login con la contraseña nueva).
   - T14.3.2: ADR 13 en `architecture.md`.
+
+### Fase 15: UI/UX del Entrenamiento en Vivo + Detalle de Ejercicio (imágenes + instrucciones)
+- **Macro-objetivo:** Durante una rutina en curso (`ActiveWorkoutScreen`), las tarjetas de ejercicio solo muestran el nombre en texto plano — sin miniatura ni forma de ver cómo se ejecuta el ejercicio. **Hallazgo:** el popup de detalle (`_showExerciseDetail`) y la miniatura (`_ExerciseThumbnail`) YA EXISTEN en `active_workout_screen.dart`, pero solo están cableados a la hoja de "Agregar Ejercicio" — nunca a las tarjetas de la sesión en vivo. Esta Fase reutiliza ese código ya construido en el lugar donde realmente hace falta, y pule la experiencia visual del tracker en vivo.
+- **Aclaración importante (no prometer algo que no existe):** el dataset `free-exercise-db` (F7) tiene **2 imágenes estáticas** por ejercicio (posición inicial/final en `image_urls[0]`/`[1]`), **no un GIF animado** — el popup de detalle ya solo muestra `imageUrls.first` (una sola imagen); esta Fase lo mejora a un carrusel/galería con AMBAS imágenes, que es la representación más fiel de "cómo se hace" disponible en los datos reales.
+- **Entregable global:** en la sesión de entrenamiento en vivo, cada tarjeta de ejercicio muestra su miniatura y el nombre es tocable, abriendo el mismo popup de detalle (ahora con las 2 imágenes en carrusel) ya usado en "Agregar Ejercicio"; pulido visual de la tarjeta (indicador claro de ejercicio con todas las series completadas, mejor jerarquía visual de la tabla de series).
+- **Criterios de Aceptación (AC):**
+  - **AC1:** la tarjeta de ejercicio en `ActiveWorkoutScreen` muestra `_ExerciseThumbnail` (ya existente) junto al nombre.
+  - **AC2:** tocar el nombre/miniatura abre `_showExerciseDetail` (ya existente, reusado, no reimplementado) — mismo popup que en "Agregar Ejercicio", ahora accesible también durante la sesión activa.
+  - **AC3:** el popup de detalle muestra un carrusel/galería con TODAS las imágenes de `exercise.imageUrls` (hoy solo muestra la primera), con indicador de página si hay más de una.
+  - **AC4:** pulido visual: la tarjeta de ejercicio indica claramente cuando todas sus series están completadas (p. ej. borde/ícono de check), y la tabla de series mantiene legibilidad (sin regresión de la edición inline de peso/reps/rpe ya existente).
+  - **AC5:** cero regresión en el flujo de edición de sets/finalizar/cancelar entrenamiento ya existente.
+- **Estrategia de Pruebas (nivel Fase):**
+  - **Tests Unitarios:** widget test — la tarjeta de ejercicio en la sesión activa renderiza `_ExerciseThumbnail`; tocar el nombre invoca el mismo diálogo de detalle (verificable buscando el título del ejercicio duplicado en el árbol de widgets tras el tap, o refactorizando `_showExerciseDetail` a un método público/testeable si hace falta); el carrusel de imágenes muestra tantas páginas como `imageUrls.length`.
+  - **Tests de Simulación de Usuario:** iniciar una rutina → tocar un ejercicio en la tarjeta activa → ver el popup con las 2 imágenes (deslizable) + instrucciones reales del catálogo → cerrar → seguir registrando series sin problema.
+- **F15.SF1: Miniatura + detalle reusado en la tarjeta activa**
+  - T15.1.1: `_ExerciseThumbnail` + tap-to-detail en la tarjeta de `ActiveWorkoutScreen` (reusa `_showExerciseDetail` existente).
+- **F15.SF2: Carrusel de imágenes en el popup de detalle**
+  - T15.2.1: `_showExerciseDetail` muestra todas las `imageUrls` en un carrusel deslizable con indicador de página, no solo la primera.
+- **F15.SF3: Pulido visual de la tarjeta de ejercicio**
+  - T15.3.1: Indicador visual de ejercicio 100% completado + revisión de jerarquía visual de la tabla de series.

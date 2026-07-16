@@ -923,3 +923,75 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   - `[ ]` A14.3.2.1: ADR 13 en `architecture.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
+
+---
+
+## F15: UI/UX del Entrenamiento en Vivo + Detalle de Ejercicio (imágenes + instrucciones) [ ]
+
+> Hallazgo: `_showExerciseDetail`/`_ExerciseThumbnail` YA EXISTEN en `active_workout_screen.dart`, pero solo están cableados a la hoja "Agregar Ejercicio" — nunca a las tarjetas de la sesión en vivo, que hoy solo muestran el nombre en texto plano. El dataset tiene 2 imágenes ESTÁTICAS por ejercicio (no un GIF animado) — se corrige esa expectativa mostrando ambas en un carrusel.
+> **AC de Fase:** miniatura + tap-to-detail en la tarjeta activa (reusando código existente) · popup con carrusel de TODAS las imágenes (hoy solo la primera) · indicador visual de ejercicio completado · cero regresión en edición de sets/finalizar/cancelar.
+
+### SF15.1: Miniatura + detalle reusado en la tarjeta activa [ ]
+
+#### T15.1.1: `_ExerciseThumbnail` + tap-to-detail en la tarjeta de `ActiveWorkoutScreen` [ ]
+- **🧠 Explicación:** El encabezado de cada tarjeta de ejercicio en la sesión activa (`ActiveWorkoutScreen`, dentro del `ListView.builder` de `activeExercisesIds`) hoy es solo `Text(exercise.name)` + botón de borrar. `_ExerciseThumbnail` y `_showExerciseDetail` ya existen en el mismo archivo (usados hoy solo en `_showAddExerciseModal`) — hay que reusarlos aquí, no reimplementarlos.
+- **💡 Cómo hacerlo:** en el `Row` del encabezado de la tarjeta (donde hoy está `Expanded(child: Text(exercise.name, ...))`), envolver en un `InkWell`/`GestureDetector` que llame `_showExerciseDetail(context, exercise)`, y anteponer `_ExerciseThumbnail(exercise: exercise)`:
+  ```dart
+  Row(
+    children: [
+      _ExerciseThumbnail(exercise: exercise),
+      const SizedBox(width: 12),
+      Expanded(
+        child: InkWell(
+          onTap: () => _showExerciseDetail(context, exercise),
+          child: Text(exercise.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+        ),
+      ),
+      IconButton(icon: const Icon(Icons.delete_outline_rounded, ...), onPressed: () => provider.removeExerciseFromActiveWorkout(exId)),
+    ],
+  ),
+  ```
+- **Acciones:**
+  - `[ ]` A15.1.1.1: `_ExerciseThumbnail` en el encabezado de la tarjeta activa.
+  - `[ ]` A15.1.1.2: Tap en el nombre/miniatura abre `_showExerciseDetail` (reusado).
+- **✅ Tests Unitarios:** widget test — con una sesión activa y un ejercicio agregado, la tarjeta renderiza `_ExerciseThumbnail`; tocar el nombre abre el diálogo de detalle (verificar que aparece el texto del nombre del ejercicio dentro de un `Dialog` tras el tap).
+- **🎭 Tests de Simulación de Usuario:** iniciar una rutina → agregar/tener un ejercicio → tocar su nombre en la tarjeta activa → ver el popup de detalle (antes solo accesible desde "Agregar Ejercicio").
+
+### SF15.2: Carrusel de imágenes en el popup de detalle [ ]
+
+#### T15.2.1: `_showExerciseDetail` muestra todas las `imageUrls` en carrusel [ ]
+- **🧠 Explicación:** Hoy el popup solo muestra `exercise.imageUrls.first` — una sola imagen estática. El dataset trae típicamente 2 (posición inicial/final); mostrarlas ambas (deslizables) es la representación más fiel de "cómo se hace el ejercicio" disponible en los datos reales (no hay GIF animado en el dataset).
+- **💡 Cómo hacerlo:** reemplazar el bloque `if (exercise.imageUrls.isNotEmpty) Center(child: Image.network(exercise.imageUrls.first, ...))` por un `PageView.builder` de altura fija (misma `height: 180`) sobre `exercise.imageUrls`, con un indicador de página (`SmoothPageIndicator`-style casero: una fila de puntitos, sin dependencia nueva) debajo si `imageUrls.length > 1`:
+  ```dart
+  SizedBox(
+    height: 180,
+    child: PageView.builder(
+      itemCount: exercise.imageUrls.length,
+      itemBuilder: (context, i) => Image.network(
+        exercise.imageUrls[i], fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => const Icon(Icons.fitness_center_rounded, size: 96, color: Colors.grey),
+      ),
+    ),
+  ),
+  if (exercise.imageUrls.length > 1)
+    Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text('${exercise.imageUrls.length} imágenes — desliza', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+    ),
+  ```
+  (Un indicador de puntos real es un plus, pero un texto simple "N imágenes — desliza" ya cumple el AC sin añadir una dependencia nueva — usa tu criterio si quieres algo más elaborado, pero no añadas un paquete pub.dev nuevo solo para esto.)
+- **Acciones:**
+  - `[ ]` A15.2.1.1: `PageView` sobre todas las `imageUrls` en vez de solo la primera.
+  - `[ ]` A15.2.1.2: Indicador de que hay más de una imagen cuando aplica.
+- **✅ Tests Unitarios:** widget test — con un `Exercise` de 2 `imageUrls`, el popup renderiza un `PageView` con `itemCount == 2`; con 1 sola imagen, no muestra el indicador de "desliza"; con 0 imágenes, cae al ícono de fallback (comportamiento ya existente, no romperlo).
+- **🎭 Tests de Simulación de Usuario:** abrir el detalle de un ejercicio con 2 imágenes → deslizar → ver ambas.
+
+### SF15.3: Pulido visual de la tarjeta de ejercicio [ ]
+
+#### T15.3.1: Indicador de ejercicio completado + jerarquía visual de la tabla de series [ ]
+- **🧠 Explicación:** Con muchos ejercicios en una rutina larga, es difícil ver de un vistazo cuáles ya se completaron del todo. Un indicador visual (borde/ícono) en la tarjeta cuando TODAS sus series están `completed: true` mejora la lectura rápida del progreso.
+- **💡 Cómo hacerlo:** en el `Card` de cada ejercicio (`ActiveWorkoutScreen`), calcular `final allDone = exerciseSets.isNotEmpty && exerciseSets.every((s) => s.completed);` y usar `shape: RoundedRectangleBorder(side: BorderSide(color: allDone ? Color(0xFF2ED573) : Colors.transparent, width: 1.5), borderRadius: BorderRadius.circular(12))` en el `Card`, más un ícono de check pequeño junto al nombre cuando `allDone`. No cambies la lógica de edición de sets existente, solo el estilo condicional.
+- **Acciones:**
+  - `[ ]` A15.3.1.1: Borde/ícono de "completado" cuando todas las series de un ejercicio están marcadas.
+- **✅ Tests Unitarios:** widget test — con todos los sets de un ejercicio `completed: true`, la tarjeta muestra el indicador visual; con al menos uno sin completar, no lo muestra.
+- **🎭 Tests de Simulación de Usuario:** marcar todas las series de un ejercicio como hechas → ver el indicador visual de completado en la tarjeta, sin afectar el resto de la sesión.
