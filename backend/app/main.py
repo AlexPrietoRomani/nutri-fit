@@ -490,7 +490,17 @@ def chat_plan(req: ChatPlanRequest):
         # gemma4:e4b), y aquí no hay perfil real del que sacar target_calories/macros.
         goals = (req.profile or {}).get("goals") or {"objetivo": intent.get("goal") or "maintenance"}
         meal_plan = _build_meal_plan(req.ai, goals, intent.get("preferences"))
-    reply = _run_ai(req.ai, f"{FITNESS_SYSTEM}\nResume en 2-3 frases, en español, qué generaste en respuesta a: \"{req.message}\"")
+    # Reply determinista: nunca se le pide al LLM que "resuma qué hizo", porque
+    # eso lo lleva a alucinar acciones (p. ej. afirmar que guardó una rutina)
+    # que el backend nunca ejecutó. Ver SF13.1/T13.2.2.
+    reply_parts = []
+    if workout is not None:
+        reply_parts.append("Aquí tienes tu rutina sugerida. Usa el botón 'Guardar rutina' si quieres conservarla.")
+    if meal_plan is not None:
+        reply_parts.append("Y tu plan de comidas para hoy.")
+    if not reply_parts:
+        reply_parts.append("No detecté que quisieras una rutina o un plan de comidas — cuéntame con más detalle qué necesitas.")
+    reply = " ".join(reply_parts)
     return ChatPlanResponse(reply=reply, workout=workout, meal_plan=meal_plan)
 
 
