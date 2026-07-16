@@ -29,13 +29,14 @@ void main() {
   });
 
   group('AiProvider.sendMessage', () {
-    test('POST /chat envía {message, ai} y agrega la respuesta', () async {
+    test('POST /chat-plan envía {message, ai} y agrega la respuesta', () async {
       final mock = MockClient((req) async {
         final body = jsonDecode(req.body) as Map<String, dynamic>;
-        expect(req.url.path, endsWith('/chat'));
+        expect(req.url.path, endsWith('/chat-plan'));
         expect(body['message'], 'hola');
         expect((body['ai'] as Map)['provider'], 'openai');
-        return http.Response(jsonEncode({'reply': 'respuesta IA'}), 200,
+        return http.Response(
+            jsonEncode({'reply': 'respuesta IA', 'workout': null, 'meal_plan': null}), 200,
             headers: {'content-type': 'application/json'});
       });
       final p = AiProvider(
@@ -46,7 +47,51 @@ void main() {
       expect(p.messages.length, 2);
       expect(p.messages.last.role, 'assistant');
       expect(p.messages.last.text, 'respuesta IA');
+      expect(p.messages.last.workout, isNull);
+      expect(p.messages.last.mealPlan, isNull);
       expect(p.error, isNull);
+    });
+
+    test('cuando la respuesta trae workout/meal_plan, los expone en el ChatMessage', () async {
+      final mock = MockClient((req) async {
+        expect(req.url.path, endsWith('/chat-plan'));
+        return http.Response(
+          jsonEncode({
+            'reply': 'Aquí tienes tu plan',
+            'workout': {
+              'items': [
+                {'exercise_id': 3, 'sets': 4, 'reps': 10, 'rpe': 8}
+              ],
+              'cardio_block': '20 min trote suave',
+            },
+            'meal_plan': {
+              'meals': [
+                {
+                  'meal_type': 'breakfast',
+                  'food_name': 'Avena con fruta',
+                  'calories': 350,
+                  'protein_g': 15,
+                  'carbs_g': 50,
+                  'fat_g': 8,
+                  'serving_size_g': 200,
+                }
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final p = AiProvider(
+        httpClient: mock,
+        config: AIConfig(provider: 'openai', model: 'm'),
+      );
+      await p.sendMessage('genera mi plan');
+      final last = p.messages.last;
+      expect(last.workout, isNotNull);
+      expect(last.workout!['items'], isA<List>());
+      expect(last.mealPlan, isNotNull);
+      expect((last.mealPlan!['meals'] as List).first['food_name'], 'Avena con fruta');
     });
 
     test('un 503 del backend se refleja como error', () async {

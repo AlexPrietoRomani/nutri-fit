@@ -5,6 +5,7 @@ import 'training_provider.dart';
 import 'active_workout_screen.dart';
 import '../ai/ai_provider.dart';
 import '../ai/vision_service.dart';
+import '../ai/chat_fab.dart';
 
 class WorkoutScreen extends StatefulWidget {
   const WorkoutScreen({super.key});
@@ -152,6 +153,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           ),
         ],
       ),
+      floatingActionButton: const ChatFab(),
       body: provider.isLoading && provider.exercises.isEmpty
           ? const Center(
               child: CircularProgressIndicator(

@@ -103,6 +103,80 @@ def test_analyze_meal_sin_ai_cae_a_mock(monkeypatch):
     assert "food_items" in r.json()
 
 
+# --- F11: /chat-plan (orquestador) ---
+
+def test_chat_plan_workout_y_meal(monkeypatch):
+    monkeypatch.setattr(
+        main, "_fetch_exercise_candidates",
+        lambda bp, eq, limit=40: [
+            {"id": 5, "name": "Swing", "body_part": "full_body", "equipment": "kettlebells"},
+        ],
+    )
+    calls = {"n": 0}
+
+    def fake_ai(cfg, prompt, want_json=False):
+        calls["n"] += 1
+        if calls["n"] == 1:  # _extract_intent
+            return _json.dumps({
+                "wants_workout": True, "wants_meal_plan": True,
+                "equipment": ["caminadora", "pesa rusa"], "has_cardio_equipment": True,
+                "goal": "weight_loss", "preferences": None,
+            })
+        if calls["n"] == 2:  # _build_workout_plan
+            return '{"items":[{"exercise_id":5,"sets":3,"reps":15,"rpe":7}]}'
+        if calls["n"] == 3:  # _build_meal_plan
+            return '{"meals":[{"meal_type":"lunch","food_name":"Pollo","calories":400,' \
+                   '"protein_g":40,"carbs_g":30,"fat_g":10,"serving_size_g":300}]}'
+        return "Listo, aquí tienes tu rutina y plan de comidas."
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={"message": "caminadora y pesa rusa, bajar de peso, y desayuno/almuerzo/cena", "ai": AICFG})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["workout"]["items"] == [{"exercise_id": 5, "sets": 3, "reps": 15, "rpe": 7}]
+    assert "cardio_block" in body["workout"]
+    assert len(body["meal_plan"]["meals"]) == 1
+
+
+def test_chat_plan_solo_meal_plan(monkeypatch):
+    def fake_ai(cfg, prompt, want_json=False):
+        if "wants_workout" in prompt:
+            return _json.dumps({
+                "wants_workout": False, "wants_meal_plan": True,
+                "equipment": [], "has_cardio_equipment": False,
+                "goal": "maintenance", "preferences": None,
+            })
+        if "meals" in prompt:
+            return '{"meals":[{"meal_type":"dinner","food_name":"Pescado","calories":350,' \
+                   '"protein_g":35,"carbs_g":20,"fat_g":8,"serving_size_g":250}]}'
+        return "Aquí tienes tu plan de comidas."
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={"message": "quiero un plan de comidas", "ai": AICFG})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["workout"] is None
+    assert body["meal_plan"] is not None
+
+
+def test_chat_plan_degrada_sin_equipo_reconocido(monkeypatch):
+    monkeypatch.setattr(main, "_fetch_exercise_candidates", lambda bp, eq, limit=40: [])
+
+    def fake_ai(cfg, prompt, want_json=False):
+        if "wants_workout" in prompt:
+            return _json.dumps({
+                "wants_workout": True, "wants_meal_plan": False,
+                "equipment": ["banda elástica"], "has_cardio_equipment": False,
+                "goal": "muscle_gain", "preferences": None,
+            })
+        return "Aquí tienes lo que pude armar."
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={"message": "solo tengo una banda elástica", "ai": AICFG})
+    assert r.status_code == 200
+    assert r.json()["workout"] == {"items": []}
+
+
 def test_identify_machine_con_ai(monkeypatch):
     reply = _json.dumps({
         "machine_name": "Leg Press", "description": "empuje de piernas",
