@@ -818,9 +818,9 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** N/A (config de infra); verificación manual — `docker compose up`, `curl http://localhost:8025/api/v1/messages` responde (aunque vacío al inicio).
 - **🎭 Tests de Simulación de Usuario:** N/A (infra, cubierto por T14.3.1).
 
-### SF14.2: Flujo de recuperación (frontend) [ ]
+### SF14.2: Flujo de recuperación (frontend) [X]
 
-#### T14.2.1: Enlace "¿Olvidaste tu contraseña?" → `resetPasswordForEmail` [ ]
+#### T14.2.1: Enlace "¿Olvidaste tu contraseña?" → `resetPasswordForEmail` [X]
 - **🧠 Explicación:** En el modo login de `AuthScreen`, un enlace que pide el email y dispara la recuperación real — sin depender de que el usuario "avise" de otra forma.
 - **💡 Cómo hacerlo:** en `frontend/lib/features/auth/auth_screen.dart`, debajo del botón de login (solo visible en modo login, no signup):
   ```dart
@@ -862,12 +862,12 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   }
   ```
 - **Acciones:**
-  - `[ ]` A14.2.1.1: Enlace "¿Olvidaste tu contraseña?" visible solo en modo login.
-  - `[ ]` A14.2.1.2: Diálogo de email → `resetPasswordForEmail` con manejo de error.
-- **✅ Tests Unitarios:** widget test — el enlace existe en modo login y NO en modo signup; el diálogo valida el email antes de llamar (mismo patrón de validación ya usado en `_validate()` del archivo).
+  - `[X]` A14.2.1.1: Enlace "¿Olvidaste tu contraseña?" visible solo en modo login.
+  - `[X]` A14.2.1.2: Diálogo de email → `resetPasswordForEmail` con manejo de error.
+- **✅ Tests Unitarios:** widget test — el enlace existe en modo login y NO en modo signup; el diálogo valida el email antes de llamar. Verificado: 44/44 tests verdes.
 - **🎭 Tests de Simulación de Usuario:** cubierto por T14.3.1 (E2E real).
 
-#### T14.2.2: `AuthChangeEvent.passwordRecovery` → pantalla de nueva contraseña [ ]
+#### T14.2.2: `AuthChangeEvent.passwordRecovery` → pantalla de nueva contraseña [X]
 - **🧠 Explicación:** Al abrir el link del correo, `Supabase.initialize()` detecta el token de recuperación en la URL y GoTrue emite `AuthChangeEvent.passwordRecovery` por `onAuthStateChange` — confirmado en la documentación real del SDK (no asumido). `AuthGate` (en `main.dart`) ya escucha ese stream para decidir login/dashboard; hay que darle prioridad a este evento sobre el enrutamiento normal.
 - **💡 Cómo hacerlo:** en `frontend/lib/main.dart`, dentro de `AuthGate.build`, el `builder` del `StreamBuilder<AuthState>` ya tiene `snapshot.data?.event` disponible:
   ```dart
@@ -888,8 +888,8 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   ```
   Tras el éxito, muestra confirmación; el `AuthGate` volverá a evaluar (la sesión ya está activa tras la recuperación) y navegará normalmente.
 - **Acciones:**
-  - `[ ]` A14.2.2.1: `AuthGate` prioriza `AuthChangeEvent.passwordRecovery` sobre el enrutamiento normal.
-  - `[ ]` A14.2.2.2: `ResetPasswordScreen` con campo de contraseña + `updateUser`.
+  - `[X]` A14.2.2.1: `AuthGate` prioriza `AuthChangeEvent.passwordRecovery` sobre el enrutamiento normal.
+  - `[X]` A14.2.2.2: `ResetPasswordScreen` con campo de contraseña + `updateUser`. Verificado: 44/44 tests, sin regresión.
 - **✅ Tests Unitarios:** widget test — con un `AuthState` mockeado de evento `passwordRecovery`, `AuthGate` renderiza `ResetPasswordScreen` (no `AuthScreen`/`InitialCheckScreen`); `ResetPasswordScreen` valida la contraseña (mínimo 6 caracteres, mismo criterio que `auth_screen.dart`) antes de llamar `updateUser`.
 - **🎭 Tests de Simulación de Usuario:** cubierto por T14.3.1 (E2E real).
 
