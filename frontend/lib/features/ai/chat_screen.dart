@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'ai_provider.dart';
@@ -114,8 +115,11 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.all(12),
-              itemCount: ai.messages.length,
+              itemCount: ai.messages.length + (ai.isLoading ? 1 : 0),
               itemBuilder: (context, i) {
+                if (i == ai.messages.length) {
+                  return const _ThinkingBubble();
+                }
                 final m = ai.messages[i];
                 final isUser = m.role == 'user';
                 return Align(
@@ -143,7 +147,6 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
-          if (ai.isLoading) const LinearProgressIndicator(),
           // Acciones rápidas
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -213,7 +216,8 @@ class _ChatScreenState extends State<ChatScreen> {
               ListTile(
                 dense: true,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                title: Text('Ejercicio #${(item as Map)['exercise_id']}',
+                title: Text(
+                    (item as Map)['name']?.toString() ?? 'Ejercicio #${item['exercise_id']}',
                     style: const TextStyle(color: Colors.white, fontSize: 13)),
                 trailing: Text('${item['sets']}x${item['reps']} · RPE ${item['rpe']}',
                     style: const TextStyle(color: Colors.grey, fontSize: 12)),
@@ -267,6 +271,62 @@ class _ChatScreenState extends State<ChatScreen> {
                   style: const TextStyle(color: Colors.grey, fontSize: 12),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Burbuja "el asistente está pensando..." mientras se espera la respuesta.
+/// Vive en el flujo de mensajes (no como barra aparte) para que el usuario
+/// sepa que algo está pasando y no se sienta ignorado durante la espera.
+class _ThinkingBubble extends StatefulWidget {
+  const _ThinkingBubble();
+
+  @override
+  State<_ThinkingBubble> createState() => _ThinkingBubbleState();
+}
+
+class _ThinkingBubbleState extends State<_ThinkingBubble> {
+  int _dots = 1;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 450), (_) {
+      if (mounted) setState(() => _dots = (_dots % 3) + 1);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E201E),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2ED573)),
+            ),
+            const SizedBox(width: 10),
+            Text('Pensando${'.' * _dots}', style: const TextStyle(color: Colors.grey)),
           ],
         ),
       ),

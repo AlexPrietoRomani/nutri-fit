@@ -133,7 +133,7 @@ def test_chat_plan_workout_y_meal(monkeypatch):
     r = client.post("/chat-plan", json={"message": "caminadora y pesa rusa, bajar de peso, y desayuno/almuerzo/cena", "ai": AICFG})
     assert r.status_code == 200
     body = r.json()
-    assert body["workout"]["items"] == [{"exercise_id": 5, "sets": 3, "reps": 15, "rpe": 7}]
+    assert body["workout"]["items"] == [{"exercise_id": 5, "sets": 3, "reps": 15, "rpe": 7, "name": "Swing"}]
     assert "cardio_block" in body["workout"]
     assert len(body["meal_plan"]["meals"]) == 1
 

@@ -28,7 +28,7 @@ OPENAI_BASE_URLS: dict[str, str] = {
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
     "lmstudio": os.getenv("LMSTUDIO_URL", "http://host.docker.internal:1234/v1"),
     "vllm": os.getenv("VLLM_URL", "http://host.docker.internal:8000/v1"),
-    "ollama": f"{os.getenv('OLLAMA_HOST', 'http://ollama:11434')}/v1",
+    "ollama": f"{os.getenv('OLLAMA_HOST', 'http://host.docker.internal:11434')}/v1",
 }
 
 # Proveedores que hablan el protocolo OpenAI-compatible.

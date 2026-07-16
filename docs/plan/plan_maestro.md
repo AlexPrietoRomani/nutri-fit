@@ -145,3 +145,28 @@ Este documento detalla la planificación del desarrollo de Nutri-Fit, incluyendo
   - T11.2.2: `ChatScreen`/`AiProvider` consumen `/chat-plan`; tarjetas de rutina y de plan de comidas embebidas en los mensajes del asistente.
 - **F11.SF3: Documentación**
   - T11.3.1: ADR 10 (orquestador chat+generación) en `architecture.md`.
+
+### Fase 12: Gestión de Modelos Ollama (selector en vivo + instalación de modelos recomendados)
+- **Macro-objetivo:** Cierra el bug reportado: el modelo sugerido por defecto para `ollama` (`kSuggestedModel['ollama']='llama3.1'`) no está instalado en el Ollama real del usuario, y el campo de modelo es texto libre — nadie ve qué modelos existen de verdad hasta que el chat falla con un 404/503. Se añade un dominio nuevo (gestión de modelos Ollama: listar instalados, instalar recomendados) que F8 nunca cubrió (F8 solo consume `AIConfig`, no administra el Ollama del usuario).
+- **Entregable global:** en Ajustes de IA, al elegir proveedor `ollama` aparece un desplegable con los modelos REALMENTE instalados (no texto libre a ciegas) y una sección "Modelos recomendados" con botón de instalar y progreso de descarga.
+- **Hallazgo de infraestructura (verificado, no re-investigar):** `docker-compose.yml` tiene un servicio `ollama` (imagen `ollama/ollama:latest`) que mapea el puerto **11434 del host** al contenedor — compite con el Ollama nativo de Windows del usuario, que escucha en el mismo puerto del host y es el que tiene los modelos reales (`gemma4:e4b`, `gemma4:26b`, `llama3.2:latest`, `qwen2.5:3b`). El backend usa `OLLAMA_HOST` con default `http://ollama:11434` (el servicio docker, casi vacío) en vez de `host.docker.internal:11434` (el Ollama real). Esta Fase corrige el default y resuelve el conflicto de puerto para que "listar modelos instalados" no muestre el Ollama equivocado.
+- **Decisión de arquitectura:** el listado/instalación de modelos pasa por el **backend** (`ai_service`), no por el navegador directo a Ollama — aunque Ollama respondió con CORS abierto en la prueba manual, depender de la config de CORS de un proceso externo que el usuario no controla desde la app es frágil; el backend ya tiene `CORSMiddleware` abierto y es el mismo patrón ya usado para todo lo demás (F8/F9/F11).
+- **Criterios de Aceptación (AC):**
+  - **AC1 (infra):** el servicio `ollama` de `docker-compose.yml` deja de competir por el puerto 11434 del host (se quita el mapeo de puerto o se remueve el servicio si no lo usa nada más); `OLLAMA_HOST` por defecto del backend apunta a `host.docker.internal:11434`.
+  - **AC2 (backend):** `GET /ollama/models?base_url=...` devuelve la lista real de modelos instalados (nombre, tamaño) consultando `/api/tags` nativo del Ollama que corresponda al `base_url` configurado (con o sin sufijo `/v1`). `POST /ollama/pull {base_url, model}` inicia una descarga en background contra `/api/pull` nativo; `GET /ollama/pull-status?model=...` expone el progreso hasta completarse.
+  - **AC3 (frontend):** en Ajustes de IA, si el proveedor es `ollama`, el campo de modelo es un desplegable poblado con `GET /ollama/models`; si Ollama no es alcanzable, cae a `TextField` libre (no rompe el flujo existente). Sección "Modelos recomendados" (lista curada: `gemma4:e4b`, `llama3.2:3b`, `qwen2.5:3b`) con botón "Instalar" por cada modelo no presente en la lista instalada, mostrando progreso y refrescando el desplegable al terminar.
+  - **AC4 (caso de prueba):** con el Ollama real del usuario, el desplegable lista exactamente los modelos instalados (sin inventar ninguno); pulsar "Instalar" en un modelo recomendado no instalado lo dispara, progresa y termina apareciendo en el desplegable.
+  - **AC5 (docs):** ADR 11 en `architecture.md` documentando el hallazgo de infraestructura, la decisión de pasar por el backend, y el flujo de listar/instalar. No toca `diseno_db.md` (sin tablas nuevas).
+- **Estrategia de Pruebas (nivel Fase):**
+  - **Tests Unitarios:** backend — `GET /ollama/models` parsea la respuesta de `/api/tags` (mockeada) a la forma esperada y maneja Ollama inalcanzable con una lista vacía/error claro, no un 500; `POST /ollama/pull`/`GET /ollama/pull-status` actualizan y exponen el estado en memoria correctamente (mockeando la llamada NDJSON a Ollama). Frontend — el desplegable se puebla con los modelos devueltos y cae a texto libre si la llamada falla.
+  - **Tests de Simulación de Usuario:** abrir Ajustes de IA, elegir `ollama`, ver el desplegable con los modelos reales del Ollama del usuario; pulsar "Instalar" en un modelo recomendado y verificar que, tras completarse, aparece seleccionable en el desplegable.
+- **F12.SF1: Infraestructura (puerto Ollama y default del backend)**
+  - T12.1.1: Resolver el conflicto de puerto 11434 en `docker-compose.yml` y corregir el default de `OLLAMA_HOST` a `host.docker.internal:11434`.
+- **F12.SF2: Backend — listar e instalar modelos**
+  - T12.2.1: `GET /ollama/models?base_url=...` (consulta `/api/tags` nativo, derivando el host desde `base_url`).
+  - T12.2.2: `POST /ollama/pull` + `GET /ollama/pull-status` (descarga en background con progreso consultable).
+- **F12.SF3: Frontend — desplegable + modelos recomendados**
+  - T12.3.1: Desplegable de modelos instalados en Ajustes de IA (con fallback a texto libre).
+  - T12.3.2: Sección "Modelos recomendados" con instalación y progreso.
+- **F12.SF4: Documentación**
+  - T12.4.1: ADR 11 en `architecture.md`.
