@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/supabase_config.dart';
 import 'features/auth/auth_screen.dart';
+import 'features/auth/reset_password_screen.dart';
 import 'features/auth/onboarding_provider.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/nutrition/nutrition_provider.dart';
@@ -93,18 +94,33 @@ class NutriFitApp extends StatelessWidget {
 /// Gate reactivo a la sesión de Supabase: sin sesión muestra [AuthScreen],
 /// con sesión delega en [InitialCheckScreen] (Onboarding vs Dashboard).
 class AuthGate extends StatelessWidget {
-  const AuthGate({super.key});
+  /// [authStateStream]/[initialAuthState] son un seam solo para tests: evitan
+  /// instanciar un `SupabaseClient` real, que cuelga el proceso en este
+  /// sandbox (INC-015, docs/logs/log.md). En producción se usan los defaults
+  /// (`SupabaseConfig.client`).
+  const AuthGate({super.key, this.authStateStream, this.initialAuthState});
+
+  final Stream<AuthState>? authStateStream;
+  final AuthState? initialAuthState;
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<AuthState>(
-      stream: SupabaseConfig.client.auth.onAuthStateChange,
-      initialData: AuthState(
-        AuthChangeEvent.initialSession,
-        SupabaseConfig.client.auth.currentSession,
-      ),
+      stream: authStateStream ?? SupabaseConfig.client.auth.onAuthStateChange,
+      initialData: initialAuthState ??
+          AuthState(
+            AuthChangeEvent.initialSession,
+            SupabaseConfig.client.auth.currentSession,
+          ),
       builder: (context, snapshot) {
-        final session = snapshot.data?.session ?? SupabaseConfig.client.auth.currentSession;
+        if (snapshot.data?.event == AuthChangeEvent.passwordRecovery) {
+          return const ResetPasswordScreen();
+        }
+        // Con el seam de test activo (authStateStream provisto) no se toca
+        // SupabaseConfig.client: un SupabaseClient real cuelga el proceso en
+        // este sandbox (INC-015, docs/logs/log.md).
+        final session = snapshot.data?.session ??
+            (authStateStream == null ? SupabaseConfig.client.auth.currentSession : null);
         if (session == null) {
           return const AuthScreen();
         }
