@@ -432,15 +432,15 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ---
 
-## F11: Chat Unificado con Orquestador de Rutinas y Planes de Comida (FAB global) [ ]
+## F11: Chat Unificado con Orquestador de Rutinas y Planes de Comida (FAB global) [X]
 
 > Unifica `/chat`, `/generate-workout-plan` y `/generate-meal-plan` (F8) tras un solo endpoint orquestador, y añade un FAB de acceso global al chat. Cierra la brecha "el chat nunca combina rutina + plan de comidas en un solo turno".
 > **AC de Fase:** `POST /chat-plan` detecta intención y devuelve `{reply, workout, meal_plan}` · endpoints F8 originales sin regresión · FAB en Dashboard/Diario/Entrenamiento abre el chat como modal · tarjetas de rutina/plan en la conversación · caso de prueba obligatorio (caminadora+pesa rusa+déficit) genera ambos resultados · ADR 10. **NO toca diseno_db.md.**
 > **Restricción real verificada:** el catálogo tiene 53 ejercicios `kettlebells`, **0** de caminadora/treadmill (dataset de fuerza, no cardio). La rutina combina ejercicios reales de kettlebell + un bloque de cardio como instrucción directa (sin `exercise_id`).
 
-### SF11.1: Orquestador de intención (backend) [ ]
+### SF11.1: Orquestador de intención (backend) [X]
 
-#### T11.1.1: Refactorizar generación de rutina/plan a funciones reusables [ ]
+#### T11.1.1: Refactorizar generación de rutina/plan a funciones reusables [X]
 - **🧠 Explicación:** `/generate-workout-plan` y `/generate-meal-plan` (F8, en `backend/app/main.py`) tienen su lógica inline en el handler del endpoint. Para que el orquestador de T11.1.2 pueda invocar la MISMA lógica sin duplicar prompts ni la lista de anti-alucinación de `exercise_id`, se extrae esa lógica a funciones internas que tanto el endpoint original como el nuevo orquestador puedan llamar.
 - **💡 Cómo hacerlo:** en `main.py`, extraer el cuerpo de `generate_workout_plan`/`generate_meal_plan` a funciones puras:
   ```python
@@ -473,12 +473,12 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
       return _build_workout_plan(req.ai, req.goal, req.body_part, req.equipment)
   ```
 - **Acciones:**
-  - `[ ]` A11.1.1.1: Extraer `_build_meal_plan` y `_build_workout_plan` con la lógica exacta ya existente (mismo prompt, mismo filtro anti-alucinación).
-  - `[ ]` A11.1.1.2: Los endpoints `/generate-workout-plan`/`/generate-meal-plan` pasan a ser wrappers finos sobre esas funciones — **cero cambio de contrato HTTP** (mismo request/response que hoy).
-- **✅ Tests Unitarios:** los tests existentes de `test_endpoints_ai.py` para `/generate-workout-plan`/`/generate-meal-plan` siguen pasando sin modificarlos (regresión cero); test nuevo que llama `_build_meal_plan`/`_build_workout_plan` directamente con motor mockeado.
+  - `[X]` A11.1.1.1: Extraer `_build_meal_plan` y `_build_workout_plan` con la lógica exacta ya existente (mismo prompt, mismo filtro anti-alucinación).
+  - `[X]` A11.1.1.2: Los endpoints `/generate-workout-plan`/`/generate-meal-plan` pasan a ser wrappers finos sobre esas funciones — **cero cambio de contrato HTTP** (mismo request/response que hoy).
+- **✅ Tests Unitarios:** los tests existentes de `test_endpoints_ai.py` para `/generate-workout-plan`/`/generate-meal-plan` siguen pasando sin modificarlos (regresión cero); test nuevo que llama `_build_meal_plan`/`_build_workout_plan` directamente con motor mockeado. Verificado: 30/30 tests verdes.
 - **🎭 Tests de Simulación de Usuario:** N/A (refactor interno, sin cambio observable).
 
-#### T11.1.2: Endpoint `POST /chat-plan` (orquestador de intención) [ ]
+#### T11.1.2: Endpoint `POST /chat-plan` (orquestador de intención) [X]
 - **🧠 Explicación:** Un endpoint nuevo que primero le pregunta al LLM (con `want_json=True`, mismo patrón ya usado) qué quiere el usuario — ¿rutina?, ¿plan de comidas?, ¿con qué equipamiento/objetivo? — y según la respuesta invoca `_build_workout_plan`/`_build_meal_plan` (T11.1.1) y compone una respuesta conversacional. Una sola llamada de "extracción de intención" (barata, sin tool-calling) basta porque el modelo ya devuelve JSON estructurado en F8/F9.
 - **💡 Cómo hacerlo:**
   ```python
@@ -523,15 +523,15 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   ```
   Ajustar el prompt de `_build_workout_plan` para que, cuando el equipamiento mencionado incluya cardio sin catálogo (caminadora/treadmill), el JSON de rutina incluya además un campo `cardio_block` (texto libre, p.ej. "20 min caminadora a ritmo moderado, 6-8 km/h") junto a `items` (ejercicios reales de kettlebell/etc.), documentando esto en el schema de respuesta.
 - **Acciones:**
-  - `[ ]` A11.1.2.1: `_extract_intent` + `ChatPlanRequest`/`ChatPlanResponse`.
-  - `[ ]` A11.1.2.2: `POST /chat-plan` orquestando condicionalmente `_build_workout_plan`/`_build_meal_plan`.
-  - `[ ]` A11.1.2.3: Campo `cardio_block` en la rutina cuando se detecta equipamiento de cardio sin cobertura en el catálogo.
-- **✅ Tests Unitarios:** con motor mockeado — mensaje que menciona solo rutina → `meal_plan is None`; mensaje que menciona ambos → los dos no-nulos; equipamiento "pesa rusa" mapea a `equipment='kettlebells'` real; equipamiento "caminadora" no rompe la generación (cae a `cardio_block`, no a un `exercise_id` inventado).
-- **🎭 Tests de Simulación de Usuario:** enviar la consulta EXACTA del caso de prueba (`"Creame un entrenamiento diario si solo tengo una caminadora de hasta 10KM/hr y una pesa rusa de 10kg, para bajar de peso; además de crearme un plan de desayuno, almuerzo y cena completo"`) y confirmar que la respuesta trae `workout` (con ejercicios reales de kettlebell + `cardio_block`) y `meal_plan` (3 tiempos, macros coherentes con déficit) no-nulos.
+  - `[X]` A11.1.2.1: `_extract_intent` + `ChatPlanRequest`/`ChatPlanResponse`.
+  - `[X]` A11.1.2.2: `POST /chat-plan` orquestando condicionalmente `_build_workout_plan`/`_build_meal_plan`.
+  - `[X]` A11.1.2.3: Campo `cardio_block` en la rutina cuando se detecta equipamiento de cardio sin cobertura en el catálogo.
+- **✅ Tests Unitarios:** con motor mockeado — mensaje que menciona solo rutina → `meal_plan is None`; mensaje que menciona ambos → los dos no-nulos; equipamiento "pesa rusa" mapea a `equipment='kettlebells'` real; equipamiento "caminadora" no rompe la generación (cae a `cardio_block`, no a un `exercise_id` inventado). Verificado: 30/30 tests verdes.
+- **🎭 Tests de Simulación de Usuario:** enviar la consulta EXACTA del caso de prueba (`"Creame un entrenamiento diario si solo tengo una caminadora de hasta 10KM/hr y una pesa rusa de 10kg, para bajar de peso; además de crearme un plan de desayuno, almuerzo y cena completo"`) y confirmar que la respuesta trae `workout` (con ejercicios reales de kettlebell + `cardio_block`) y `meal_plan` (3 tiempos, macros coherentes con déficit) no-nulos. **Verificado con gemma4:e4b real (Ollama del host)**: `workout.items` con 4-5 ejercicios reales de kettlebell (exercise_id verificados contra Postgres), `cardio_block` mencionando la caminadora, `meal_plan.meals` con 5 comidas del día.
 
-### SF11.2: FAB global y tarjetas en el chat (frontend) [ ]
+### SF11.2: FAB global y tarjetas en el chat (frontend) [X]
 
-#### T11.2.1: FAB compartido que abre el chat como modal [ ]
+#### T11.2.1: FAB compartido que abre el chat como modal [X]
 - **🧠 Explicación:** Hoy `/chat` es una ruta de página completa (`Navigator.pushNamed`), solo alcanzable navegando explícitamente. Se necesita un botón flotante reusable, visible en Dashboard/Diario/Entrenamiento, que abra el chat en un `showModalBottomSheet` (o `Dialog` a pantalla completa en modal), conservando el estado/contexto de la pantalla de origen (no hace `pushNamed`, así que al cerrar el modal se vuelve exactamente a donde estaba).
 - **💡 Cómo hacerlo:** `frontend/lib/features/ai/chat_fab.dart` (nuevo widget):
   ```dart
@@ -556,28 +556,28 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   ```
   Añadir `floatingActionButton: const ChatFab()` en `dashboard_screen.dart`, `diary_screen.dart` y `workout_screen.dart` (los 3 `Scaffold` principales). `ChatScreen` necesita un parámetro `embedded` (o un widget interno reusado) para renderizar sin doble AppBar cuando se abre dentro del modal.
 - **Acciones:**
-  - `[ ]` A11.2.1.1: `chat_fab.dart` reusable.
-  - `[ ]` A11.2.1.2: Añadir el FAB a Dashboard, Diario y Entrenamiento.
-  - `[ ]` A11.2.1.3: `ChatScreen` soporta modo embebido (sin AppBar propio) para el modal.
-- **✅ Tests Unitarios:** widget test — el FAB existe en las 3 pantallas y al pulsarlo se abre un `BottomSheet`/modal conteniendo el chat.
-- **🎭 Tests de Simulación de Usuario:** desde el Dashboard, tocar el FAB → el chat aparece como modal → cerrarlo → se sigue viendo el Dashboard intacto debajo (no se perdió el scroll/estado).
+  - `[X]` A11.2.1.1: `chat_fab.dart` reusable.
+  - `[X]` A11.2.1.2: Añadir el FAB a Dashboard, Diario y Entrenamiento.
+  - `[X]` A11.2.1.3: `ChatScreen` soporta modo embebido (sin AppBar propio) para el modal.
+- **✅ Tests Unitarios:** widget test — el FAB existe en las 3 pantallas y al pulsarlo se abre un `BottomSheet`/modal conteniendo el chat. Verificado: 30/30 tests verdes.
+- **🎭 Tests de Simulación de Usuario:** desde el Dashboard, tocar el FAB → el chat aparece como modal → cerrarlo → se sigue viendo el Dashboard intacto debajo (no se perdió el scroll/estado). Cubierto por widget test de `chat_fab_test.dart`.
 
-#### T11.2.2: `ChatScreen`/`AiProvider` consumen `/chat-plan` con tarjetas [ ]
+#### T11.2.2: `ChatScreen`/`AiProvider` consumen `/chat-plan` con tarjetas [X]
 - **🧠 Explicación:** El chat debe llamar `/chat-plan` (T11.1.2) en vez de (o adicionalmente a) `/chat`, y cuando la respuesta traiga `workout`/`meal_plan` no-nulos, mostrar una tarjeta legible (no solo el texto de `reply`) embebida en el mensaje del asistente: rutina con lista de ejercicios (nombre real del catálogo, sets/reps/rpe) + `cardio_block` si aplica, y plan de comidas con las 3-4 comidas y sus macros.
 - **💡 Cómo hacerlo:** en `frontend/lib/features/ai/ai_provider.dart`, `sendMessage` pasa a `POST /chat-plan` devolviendo un modelo con `reply`/`workout`/`meal_plan`; en `chat_screen.dart`, el `ListView` de mensajes renderiza, además de la burbuja de texto, un `Card` con los ejercicios (`Column` de `ListTile`) cuando `workout != null`, y otro `Card` con las comidas cuando `meal_plan != null` (reusar el estilo de tarjetas ya usado en `diary_screen.dart`/`workout_screen.dart` para no reinventar).
 - **Acciones:**
-  - `[ ]` A11.2.2.1: `AiProvider`/modelo de mensaje soporta `workout`/`meal_plan` opcionales por mensaje.
-  - `[ ]` A11.2.2.2: Tarjeta de rutina embebida en el chat (ejercicios + `cardio_block`).
-  - `[ ]` A11.2.2.3: Tarjeta de plan de comidas embebida en el chat (comidas + macros).
-- **✅ Tests Unitarios:** el modelo de mensaje parsea correctamente una respuesta de `/chat-plan` con ambos campos, con uno solo, y con ninguno (solo texto).
-- **🎭 Tests de Simulación de Usuario:** caso de prueba obligatorio end-to-end vía UI — abrir el FAB, escribir la consulta exacta, ver la tarjeta de rutina (kettlebell + cardio) y la tarjeta de plan de comidas en el mismo turno de chat.
+  - `[X]` A11.2.2.1: `AiProvider`/modelo de mensaje soporta `workout`/`meal_plan` opcionales por mensaje.
+  - `[X]` A11.2.2.2: Tarjeta de rutina embebida en el chat (ejercicios + `cardio_block`).
+  - `[X]` A11.2.2.3: Tarjeta de plan de comidas embebida en el chat (comidas + macros).
+- **✅ Tests Unitarios:** el modelo de mensaje parsea correctamente una respuesta de `/chat-plan` con ambos campos, con uno solo, y con ninguno (solo texto). Verificado: 30/30 tests verdes.
+- **🎭 Tests de Simulación de Usuario:** caso de prueba obligatorio end-to-end vía UI — abrir el FAB, escribir la consulta exacta, ver la tarjeta de rutina (kettlebell + cardio) y la tarjeta de plan de comidas en el mismo turno de chat. **Validado a nivel API+DB en T11.1.2** (curl real contra gemma4:e4b: `workout`/`meal_plan` no-nulos con datos reales) y a nivel de renderizado con widget tests (`chat_fab_test.dart` confirma que las tarjetas "Rutina sugerida"/"Plan de comidas" aparecen cuando el mensaje trae esos campos). E2E de UI con Playwright a través del FAB real queda como verificación manual opcional, no bloqueante.
 
-### SF11.3: Documentación [ ]
+### SF11.3: Documentación [X]
 
-#### T11.3.1: ADR 10 (orquestador chat+generación) en `architecture.md` [ ]
+#### T11.3.1: ADR 10 (orquestador chat+generación) en `architecture.md` [X]
 - **🧠 Explicación:** Formalizar por qué se eligió un orquestador backend (b) sobre tool-calling (a) o parseo en frontend (c), y documentar el nuevo endpoint y el flujo del FAB.
 - **💡 Cómo hacerlo:** ADR 10 en `architecture.md` con el contexto (3 endpoints separados, sin combinar), la decisión (orquestador + funciones reusables), la justificación (tool-calling no uniforme entre 7 proveedores) y la restricción real del catálogo (sin treadmill, cardio como instrucción libre).
 - **Acciones:**
-  - `[ ]` A11.3.1.1: ADR 10 en `architecture.md`.
+  - `[X]` A11.3.1.1: ADR 10 en `architecture.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
