@@ -23,6 +23,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _refreshData() {
     Future.microtask(() {
       if (mounted) {
+        context.read<OnboardingProvider>().loadProfile();
         context.read<NutritionProvider>().loadDailyData(_selectedDate);
         context.read<TrainingProvider>().loadCompletedWorkouts(_selectedDate);
       }
