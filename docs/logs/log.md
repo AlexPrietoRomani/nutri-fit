@@ -78,3 +78,13 @@ Registro forense de bugs, bloqueos y refactors. Formato: síntoma → hipótesis
 - **Resolución:** Se restauraron `plan_maestro.md`/`tareas.md` desde `7f7333d`, se reconstruyeron F7/F8 (desde los commits/PR) y se añadió F9. **Se dejó de ignorarlos**: ahora `docs/plan` y `docs/task` se versionan, así ninguna operación de rama vuelve a borrarlos.
 - **Verificación:** Los archivos existen, contienen F1–F9, y `git status` los muestra como trackeados.
 - **Lecciones:** No gitignorar artefactos que quieres conservar entre operaciones de rama — un archivo ignorado no está protegido por git y puede ser clobbered por checkouts/merges que toquen su ruta. El tablero spec-driven vale la pena versionarlo.
+
+## 2026-07-16 · INC-008 · `image_picker` lanza en web: el build servido no registraba el plugin
+
+- **Severidad:** Alta (bloqueaba el E2E de visión en web) · **Estado:** RESUELTO
+- **Contexto:** E2E de UI de F9 (foto → borrador → `food_logs`) contra el build web servido en `:8080` (un `python -m http.server` sobre `frontend/build/web`).
+- **Síntoma:** Al pulsar la cámara, Playwright registraba un `[pageerror] Error` (stack minificado), el `filechooser` NO disparaba y no aparecía el borrador. `ImagePicker().pickImage()` fallaba antes de abrir el selector.
+- **Causa raíz:** El `web_plugin_registrant.dart` del build servido solo registraba `app_links`, `shared_preferences` y `url_launcher` — faltaban `image_picker_for_web` y `flutter_secure_storage_web`. El build se generó justo cuando se añadió `image_picker` (F9) y el registrant quedó cacheado sin el plugin; en web, sin registrant, `pickImage` cae al method channel inexistente y lanza. Un `flutter build web` incremental (mismo build id) reusó el registrant viejo.
+- **Resolución:** `flutter clean` + `flutter build web` regeneró el registrant (ya incluye `ImagePickerPlugin.registerWith` y `FlutterSecureStorageWeb.registerWith`). El `python -m http.server` sirve `build/web` en vivo, así que basta rebuild (sin reiniciar el server).
+- **Verificación:** E2E `run_vision_e2e.mjs` verde de punta a punta: cámara → file picker → `/analyze-meal` con `gemma4:e4b` (visión real, no mock: detectó el plato de salmón) → borrador → `Guardar` → fila en `nutrition.food_logs`.
+- **Lecciones:** Tras añadir/quitar un plugin con implementación web, **reconstruir con `flutter clean`** antes de servir — un build incremental puede reusar un `web_plugin_registrant.dart` cacheado sin el plugin nuevo, y el fallo en web es un error genérico que no dice "falta el plugin". Bonus: este rebuild también registró `flutter_secure_storage_web`, mitigando INC-004 en web.
