@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase_config.dart';
+import '../../core/constants.dart';
 
 class OnboardingProvider extends ChangeNotifier {
   // Form fields
@@ -153,7 +154,7 @@ class OnboardingProvider extends ChangeNotifier {
       
       // In dev mode without GoTrue, use a deterministic user ID.
       // This avoids calls to /auth/v1/ which don't exist in our stack.
-      const userId = '00000000-0000-4000-a000-000000000001';
+      const userId = AppConstants.devUserId;
 
       // 1. Insert into public.users
       await client.from('users').upsert({
