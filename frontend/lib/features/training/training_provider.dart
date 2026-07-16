@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase_config.dart';
-import '../../core/constants.dart';
 
 /// Modelo de datos para un Ejercicio del catálogo (free-exercise-db).
 class Exercise {
@@ -210,8 +209,7 @@ class TrainingProvider extends ChangeNotifier {
 
     try {
       final client = SupabaseConfig.client;
-      // Obtener o crear userId para pruebas locales
-      final userId = client.auth.currentUser?.id ?? AppConstants.devUserId;
+      final userId = client.auth.currentUser!.id;
 
       _activeStartTime = DateTime.now();
 
@@ -409,7 +407,7 @@ class TrainingProvider extends ChangeNotifier {
 
     try {
       final client = SupabaseConfig.client;
-      final userId = client.auth.currentUser?.id ?? AppConstants.devUserId;
+      final userId = client.auth.currentUser!.id;
 
       final startOfDay = DateTime(date.year, date.month, date.day);
       final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59, 999);

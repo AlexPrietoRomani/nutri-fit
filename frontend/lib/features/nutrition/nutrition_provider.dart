@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/supabase_config.dart';
-import '../../core/constants.dart';
 
 class FoodLog {
   final int? id;
@@ -115,7 +114,7 @@ class NutritionProvider extends ChangeNotifier {
   List<FoodLog> getMealsOfType(String type) => _foodLogs.where((item) => item.mealType == type).toList();
 
   String get _currentUserId {
-    return _client.auth.currentUser?.id ?? AppConstants.devUserId;
+    return _client.auth.currentUser!.id;
   }
 
   Future<void> loadDailyData(DateTime date) async {
