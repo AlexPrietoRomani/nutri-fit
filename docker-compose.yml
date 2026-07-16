@@ -14,6 +14,7 @@ services:
       - ./docker/postgres/z_init.sql:/docker-entrypoint-initdb.d/z_init.sql
       - ./docker/postgres/zz_exercises_seed.sql:/docker-entrypoint-initdb.d/zz_exercises_seed.sql
       - ./docker/postgres/zzz_auth_rls.sql:/docker-entrypoint-initdb.d/zzz_auth_rls.sql
+      - ./docker/postgres/zzzz2_routines.sql:/docker-entrypoint-initdb.d/zzzz2_routines.sql
     networks:
       - nutrifit-network
     healthcheck:

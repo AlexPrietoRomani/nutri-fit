@@ -127,7 +127,7 @@ def test_chat_plan_workout_y_meal(monkeypatch):
         if calls["n"] == 3:  # _build_meal_plan
             return '{"meals":[{"meal_type":"lunch","food_name":"Pollo","calories":400,' \
                    '"protein_g":40,"carbs_g":30,"fat_g":10,"serving_size_g":300}]}'
-        return "Listo, aquí tienes tu rutina y plan de comidas."
+        raise AssertionError("no debe haber una 4a llamada al LLM (reply es determinista, SF13.1/T13.2.2)")
 
     monkeypatch.setattr(main, "ai_generate", fake_ai)
     r = client.post("/chat-plan", json={"message": "caminadora y pesa rusa, bajar de peso, y desayuno/almuerzo/cena", "ai": AICFG})
@@ -136,6 +136,18 @@ def test_chat_plan_workout_y_meal(monkeypatch):
     assert body["workout"]["items"] == [{"exercise_id": 5, "sets": 3, "reps": 15, "rpe": 7, "name": "Swing"}]
     assert "cardio_block" in body["workout"]
     assert len(body["meal_plan"]["meals"]) == 1
+    # Solo 3 llamadas reales al LLM: extraer intención + generar rutina + generar
+    # plan de comidas. Ya no hay una 4a llamada pidiendo "resumir qué generaste"
+    # (esa era la causa de la alucinación de guardado, ver SF13.1/T13.2.2).
+    assert calls["n"] == 3
+    # El reply es determinista y jamás afirma una acción de guardado que no ocurrió
+    # (solo puede mencionar el botón "Guardar rutina", nunca decir que ya se guardó).
+    assert "se guardó" not in body["reply"].lower()
+    assert "cargó" not in body["reply"].lower()
+    assert body["reply"] == (
+        "Aquí tienes tu rutina sugerida. Usa el botón 'Guardar rutina' si quieres conservarla. "
+        "Y tu plan de comidas para hoy."
+    )
 
 
 def test_chat_plan_solo_meal_plan(monkeypatch):

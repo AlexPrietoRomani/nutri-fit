@@ -4,6 +4,28 @@ Registro forense de bugs, bloqueos y refactors. Formato: síntoma → hipótesis
 
 ---
 
+## 2026-07-16 · INC-014 · INC-009/INC-010 reaparece por tercera vez tras `docker compose down -v` (T13.1.1, F13)
+
+- **Severidad:** Media (bloqueaba la verificación, no el código) · **Estado:** RESUELTO
+- **Contexto:** `docker compose down -v && up -d --build` autorizado para verificar T13.1.1 (tabla `training.routines` + RLS, `docker/postgres/zzzz2_routines.sql`) sobre un volumen Postgres vacío.
+- **Síntoma:** Idéntico a INC-009/INC-010 — `nutri-fit-auth` moría con `password authentication failed for user "supabase_auth_admin"`; `nutri-fit-gateway` con `host not found in upstream "auth"` por haber arrancado antes que `auth` existiera.
+- **Causa raíz:** Misma de INC-010 — el `ALTER ROLE supabase_auth_admin WITH PASSWORD ...` (requiere el rol `supabase_admin`, ver INC-009) nunca se persistió en un script versionado; vive solo en el estado del volumen Postgres. Cualquier `down -v` lo borra y el problema reaparece exacto, sin ser un bug nuevo.
+- **Resolución:** Se re-aplicó el mismo comando (`docker exec -e PGPASSWORD=devpassword123 nutri-fit-postgres psql -U supabase_admin -h 127.0.0.1 -d postgres -c "ALTER ROLE supabase_auth_admin WITH PASSWORD 'devpassword123';"`), luego `docker restart nutri-fit-auth` y, tras confirmar que `auth` estaba arriba, `docker restart nutri-fit-gateway`.
+- **Verificación:** GoTrue quedó operativo; `bash tests/e2e/test_auth_rls_e2e.sh` (extendido en esta misma tarea con los casos AC6-AC8 de `training.routines`) corrió completo con 9/9 PASS, confirmando signup real, aislamiento RLS de `users`/`food_logs` (F10) y de `routines` (F13, nuevo) en el mismo stack.
+- **Lecciones:** Se confirma la predicción de INC-010: este incidente **recurre en cada `down -v`** sin excepción, van 3 ocurrencias (F10 x2, F13 x1). El intento de fix declarativo vía `docker-entrypoint-initdb.d` ya se probó y se descartó en INC-010 (el servidor no escucha TCP durante bootstrap). Sigue pendiente, ahora con más peso de evidencia, evaluar un sidecar con `depends_on: postgres (healthy)` que aplique el `ALTER ROLE` una vez arrancado el stack — el costo de reaplicarlo a mano ya se pagó 3 veces.
+
+## 2026-07-16 · INC-015 · `SupabaseClient` real cuelga los widget tests de Flutter
+
+- **Severidad:** Baja (bloqueaba solo la escritura de un test, no el producto) · **Estado:** RESUELTO/MITIGADO
+- **Contexto:** T13.2.1 necesitaba testear que el botón "Guardar rutina" del chat arma el `INSERT` correcto a `training.routines`.
+- **Síntoma:** Instanciar un `SupabaseClient` real (incluso con un `httpClient` mockeado) dentro de un widget test colgaba indefinidamente el proceso `flutter test` en esta máquina — nunca terminaba ni fallaba con un error claro.
+- **Causa raíz:** `SupabaseClient` internamente lanza un isolate (`YAJsonIsolate`) para decodificar JSON en paralelo; ese isolate no completa su handshake de inicialización dentro del sandbox de test de este entorno, dejando el `await` colgado para siempre.
+- **Resolución:** En vez de mockear `SupabaseClient` completo (Auth + Realtime + Postgrest, mucho boilerplate para un caso simple), se añadió un parámetro opcional `saveRoutineOverride` a `ChatScreen` — un callback inyectable que el test puede reemplazar por una función falsa, evitando instanciar Supabase en el entorno de test. El código de producción sigue usando el cliente real cuando el parámetro no se provee.
+- **Verificación:** los tests de guardado de rutina corren instantáneamente (antes colgaban sin límite) y verifican el nombre/shape que se pasaría al `INSERT` real.
+- **Lecciones:** No instancies `SupabaseClient` real dentro de widget tests de Flutter en este entorno — usa un seam/callback inyectable para las acciones que dependen de él, en vez de intentar mockear el cliente completo. Si en el futuro hace falta testear el `INSERT` real, considera un test de integración separado (no un widget test) contra el stack Docker real, como ya se hace para RLS (`tests/e2e/test_auth_rls_e2e.sh`).
+
+---
+
 ## 2026-07-16 · INC-011 · Signup real falla en el navegador con "Failed to fetch" (CORS)
 
 - **Severidad:** Alta (bloqueante — nadie podía registrarse desde la app web) · **Estado:** RESUELTO

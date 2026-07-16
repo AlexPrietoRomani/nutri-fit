@@ -166,6 +166,8 @@ class TrainingProvider extends ChangeNotifier {
   final Set<int> _activeExercisesIds = {}; // Ejercicios añadidos en el entrenamiento en curso
   DateTime? _activeStartTime;
 
+  List<Map<String, dynamic>> _savedRoutines = [];
+
   List<Exercise> get exercises => _exercises;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
@@ -174,6 +176,35 @@ class TrainingProvider extends ChangeNotifier {
   List<WorkoutSet> get activeSets => _activeSets;
   Set<int> get activeExercisesIds => _activeExercisesIds;
   DateTime? get activeStartTime => _activeStartTime;
+  List<Map<String, dynamic>> get savedRoutines => List.unmodifiable(_savedRoutines);
+
+  /// Carga las rutinas guardadas por el usuario (`training.routines`).
+  ///
+  /// [fetchOverride] permite inyectar la respuesta en tests sin levantar un
+  /// `SupabaseClient` real (ver INC-015 en docs/logs/log.md: el isolate de
+  /// JSON de Supabase cuelga el proceso de test en este entorno). En
+  /// producción se omite y se usa el cliente real.
+  Future<void> fetchSavedRoutines({
+    Future<List<Map<String, dynamic>>> Function()? fetchOverride,
+  }) async {
+    try {
+      if (fetchOverride != null) {
+        _savedRoutines = await fetchOverride();
+      } else {
+        final client = SupabaseConfig.client;
+        final data = await client
+            .schema('training')
+            .from('routines')
+            .select()
+            .order('created_at', ascending: false);
+        _savedRoutines = List<Map<String, dynamic>>.from(data);
+      }
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      notifyListeners();
+    }
+  }
 
   /// Cargar el catálogo de ejercicios de la tabla `training.exercises`.
   Future<void> fetchExercises() async {
@@ -236,6 +267,48 @@ class TrainingProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  /// Inicia una sesión desde una rutina guardada (`training.routines.items`),
+  /// precargando sets/reps/rpe objetivo de cada ejercicio en vez de dejar la
+  /// sesión vacía como hace [startWorkoutSession].
+  Future<void> startWorkoutSessionFromRoutine(String name, List<dynamic> items) async {
+    await startWorkoutSession(name);
+    if (_activeSession == null) return;
+
+    for (final raw in items) {
+      final exerciseId = (raw as Map<String, dynamic>)['exercise_id'] as int;
+      _activeExercisesIds.add(exerciseId);
+    }
+    _activeSets.addAll(buildSetsFromRoutineItems(_activeSession!.id, items));
+    notifyListeners();
+  }
+
+  /// Construye los `WorkoutSet` iniciales de una rutina guardada a partir de
+  /// sus `items` (`[{exercise_id, name, sets, reps, rpe}]`). Función pura,
+  /// separada para poder testearla sin depender de Supabase (ver INC-015).
+  @visibleForTesting
+  static List<WorkoutSet> buildSetsFromRoutineItems(String sessionId, List<dynamic> items) {
+    final result = <WorkoutSet>[];
+    for (final raw in items) {
+      final item = raw as Map<String, dynamic>;
+      final exerciseId = item['exercise_id'] as int;
+      final sets = (item['sets'] as num?)?.toInt() ?? 1;
+      final reps = (item['reps'] as num?)?.toInt() ?? 10;
+      final rpe = (item['rpe'] as num?)?.toDouble();
+      for (var i = 0; i < sets; i++) {
+        result.add(WorkoutSet(
+          sessionId: sessionId,
+          exerciseId: exerciseId,
+          setNumber: i + 1,
+          weight: 10.0, // la IA no prescribe peso, el usuario lo ajusta
+          reps: reps,
+          rpe: rpe,
+          completed: false,
+        ));
+      }
+    }
+    return result;
   }
 
   /// Añadir un ejercicio a la sesión de entrenamiento activo en curso.

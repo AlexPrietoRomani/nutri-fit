@@ -159,4 +159,79 @@ void main() {
       expect(exercise.equipment, isNull);
     });
   });
+
+  group('TrainingProvider.fetchSavedRoutines (T13.3.1)', () {
+    // No se instancia SupabaseClient real: cuelga el proceso de test en este
+    // entorno (INC-015, docs/logs/log.md). Se usa el mismo seam/override
+    // inyectable ya usado en ChatScreen.saveRoutineOverride.
+    test('puebla savedRoutines desde la respuesta inyectada', () async {
+      final provider = TrainingProvider();
+      final fakeRoutines = [
+        {
+          'id': 'r1',
+          'name': 'Rutina IA Push/Pull',
+          'source': 'ai',
+          'items': [
+            {'exercise_id': 1, 'name': 'Press banca', 'sets': 3, 'reps': 8, 'rpe': 8.0},
+          ],
+          'cardio_block': null,
+        },
+      ];
+
+      await provider.fetchSavedRoutines(fetchOverride: () async => fakeRoutines);
+
+      expect(provider.savedRoutines, fakeRoutines);
+      expect(provider.errorMessage, isNull);
+    });
+
+    test('errores del fetch inyectado se reflejan en errorMessage sin lanzar', () async {
+      final provider = TrainingProvider();
+
+      await provider.fetchSavedRoutines(
+        fetchOverride: () async => throw Exception('boom'),
+      );
+
+      expect(provider.savedRoutines, isEmpty);
+      expect(provider.errorMessage, contains('boom'));
+    });
+  });
+
+  group('TrainingProvider.buildSetsFromRoutineItems (T13.3.1)', () {
+    test('crea sum(sets) WorkoutSet con reps/rpe de cada item, no los defaults', () {
+      final items = [
+        {'exercise_id': 1, 'name': 'Sentadilla', 'sets': 3, 'reps': 12, 'rpe': 7.5},
+        {'exercise_id': 2, 'name': 'Peso muerto', 'sets': 2, 'reps': 5, 'rpe': 9.0},
+      ];
+
+      final result = TrainingProvider.buildSetsFromRoutineItems('session-abc', items);
+
+      // sum(sets) = 3 + 2 = 5
+      expect(result.length, 5);
+
+      final ex1Sets = result.where((s) => s.exerciseId == 1).toList();
+      expect(ex1Sets.length, 3);
+      expect(ex1Sets.every((s) => s.reps == 12 && s.rpe == 7.5), isTrue);
+      expect(ex1Sets.map((s) => s.setNumber).toList(), [1, 2, 3]);
+
+      final ex2Sets = result.where((s) => s.exerciseId == 2).toList();
+      expect(ex2Sets.length, 2);
+      expect(ex2Sets.every((s) => s.reps == 5 && s.rpe == 9.0), isTrue);
+
+      // No usan los defaults de addSetToActiveExercise (10 reps / 8.0 rpe)
+      expect(result.every((s) => s.completed == false), isTrue);
+      expect(result.every((s) => s.sessionId == 'session-abc'), isTrue);
+    });
+
+    test('usa defaults (sets=1, reps=10) si el item no los especifica', () {
+      final items = [
+        {'exercise_id': 5, 'name': 'Plancha'},
+      ];
+
+      final result = TrainingProvider.buildSetsFromRoutineItems('session-xyz', items);
+
+      expect(result.length, 1);
+      expect(result.first.reps, 10);
+      expect(result.first.rpe, isNull);
+    });
+  });
 }
