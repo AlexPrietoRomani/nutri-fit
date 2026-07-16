@@ -13,6 +13,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/z_init.sql:/docker-entrypoint-initdb.d/z_init.sql
       - ./docker/postgres/zz_exercises_seed.sql:/docker-entrypoint-initdb.d/zz_exercises_seed.sql
+      - ./docker/postgres/zzz_auth_rls.sql:/docker-entrypoint-initdb.d/zzz_auth_rls.sql
     networks:
       - nutrifit-network
     healthcheck:
@@ -74,6 +75,29 @@ services:
     networks:
       - nutrifit-network
 
+  auth:
+    image: supabase/gotrue:v2.151.0
+    container_name: nutri-fit-auth
+    ports:
+      - "9999:9999"
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: http://localhost:54321/auth/v1
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:devpassword123@postgres:5432/postgres?search_path=auth
+      GOTRUE_SITE_URL: http://localhost:8080
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_SECRET: super-secret-jwt-token-for-dev-12345678
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - nutrifit-network
+
   gateway:
     image: nginx:alpine
     container_name: nutri-fit-gateway
@@ -83,6 +107,7 @@ services:
       - ./docker/gateway/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - postgrest
+      - auth
     networks:
       - nutrifit-network
 
