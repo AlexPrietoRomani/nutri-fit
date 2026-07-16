@@ -21,6 +21,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     // Cargar catálogo de ejercicios de Supabase al entrar
     Future.microtask(() {
       context.read<TrainingProvider>().fetchExercises();
+      context.read<TrainingProvider>().fetchSavedRoutines();
     });
   }
 
@@ -110,6 +111,36 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   void _startWorkout(String routineName) async {
     final provider = context.read<TrainingProvider>();
     await provider.startWorkoutSession(routineName);
+
+    if (provider.activeSession != null) {
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => const ActiveWorkoutScreen(),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Error al iniciar sesión: ${provider.errorMessage ?? "Error desconocido"}',
+              style: const TextStyle(color: Colors.white),
+            ),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  void _startSavedRoutine(Map<String, dynamic> routine) async {
+    final provider = context.read<TrainingProvider>();
+    await provider.startWorkoutSessionFromRoutine(
+      routine['name'] as String,
+      routine['items'] as List<dynamic>,
+    );
 
     if (provider.activeSession != null) {
       if (mounted) {
@@ -287,6 +318,91 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       );
                     },
                   ),
+
+                  const SizedBox(height: 24),
+                  Text(
+                    'Mis Rutinas',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  if (provider.savedRoutines.isEmpty)
+                    const Text(
+                      'Aún no tienes rutinas guardadas — pídele una al chat.',
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    )
+                  else
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: provider.savedRoutines.length,
+                      separatorBuilder: (context, index) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final routine = provider.savedRoutines[index];
+                        final itemCount = (routine['items'] as List).length;
+                        final cardioBlock = routine['cardio_block'] as String?;
+                        final subtitle = cardioBlock != null && cardioBlock.isNotEmpty
+                            ? '$itemCount ejercicios · $cardioBlock'
+                            : '$itemCount ejercicios';
+                        return Card(
+                          color: const Color(0xFF1E201E),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () => _startSavedRoutine(routine),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF2ED573).withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(
+                                      Icons.bookmark_rounded,
+                                      color: Color(0xFF2ED573),
+                                      size: 28,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          routine['name'] as String,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 15,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          subtitle,
+                                          style: const TextStyle(
+                                            color: Colors.grey,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: Colors.grey,
+                                  )
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                 ],
               ),
             ),
