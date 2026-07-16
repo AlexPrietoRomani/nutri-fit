@@ -59,3 +59,12 @@ Registro forense de bugs, bloqueos y refactors. Formato: síntoma → hipótesis
 - **Resolución:** Se añadió `CORSMiddleware` a `backend/app/main.py` (`allow_origins=["*"]` en dev). Se reconstruyó la imagen del backend.
 - **Verificación:** `OPTIONS /chat` → 200 con `Access-Control-Allow-Origin: *`; el E2E web del chat renderiza la respuesta real de Ollama.
 - **Lecciones:** Todo servicio HTTP consumido directamente por un frontend web necesita CORS; probar siempre desde el navegador (no solo curl). En móvil nativo no aplica (no es navegador).
+
+## 2026-07-16 · INC-006 · El gate inicial siempre mostraba el registro (aunque hubiera perfil)
+
+- **Severidad:** Media (UX) · **Estado:** RESUELTO
+- **Síntoma:** Tras registrarse, al volver atrás (o reabrir la app) siempre aparecía la pantalla de Onboarding/registro; un usuario con perfil nunca entraba directo al Dashboard. En web, el botón atrás del navegador llevaba de vuelta al "menú de inicio" (registro).
+- **Causa raíz:** `InitialCheckScreen._isProfileConfigured()` comprobaba `client.auth.currentUser`, pero la app usa bypass de auth (sin GoTrue), así que `currentUser` es siempre `null` → el método siempre devolvía `false` → siempre renderizaba `OnboardingScreen`. Nunca consultaba el perfil real (fila de `devUserId` en `public.users`).
+- **Resolución:** El gate ahora consulta `public.users` por `client.auth.currentUser?.id ?? AppConstants.devUserId`. Con perfil → `DashboardScreen`; sin perfil → `OnboardingScreen`. El onboarding ya usaba `pushReplacementNamed('/dashboard')`, así que volver a `/` re-resuelve al Dashboard.
+- **Verificación:** E2E web (Playwright) cargando la raíz `/` con el perfil `devUserId` presente → renderiza el Dashboard directamente (`e2e/shots/initcheck-root.png`), sin pasar por el registro.
+- **Lecciones:** Con bypass de auth, cualquier decisión de sesión (gate inicial, "tengo perfil") debe basarse en el `devUserId`, no en `auth.currentUser`. Relacionado con INC-003 (mismo origen: el bypass de auth).
