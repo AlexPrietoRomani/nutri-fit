@@ -782,7 +782,7 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ---
 
-## F14: Recuperación de Contraseña (mailer local + flujo completo) [ ]
+## F14: Recuperación de Contraseña (mailer local + flujo completo) [X]
 
 > `AuthScreen` (F10) solo tiene login/signup — sin recuperación de contraseña (verificado por grep, cero resultados). GoTrue puede enviarla, pero el stack no tiene SMTP configurado.
 > **AC de Fase:** servicio `mailpit` (SMTP + UI + API REST) · enlace "¿Olvidaste tu contraseña?" → `resetPasswordForEmail` · detección de `AuthChangeEvent.passwordRecovery` → pantalla de nueva contraseña → `updateUser` · E2E real (correo capturado por Mailpit, no simulado) · ADR 13. **NO toca diseno_db.md.**
@@ -893,9 +893,9 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** widget test — con un `AuthState` mockeado de evento `passwordRecovery`, `AuthGate` renderiza `ResetPasswordScreen` (no `AuthScreen`/`InitialCheckScreen`); `ResetPasswordScreen` valida la contraseña (mínimo 6 caracteres, mismo criterio que `auth_screen.dart`) antes de llamar `updateUser`.
 - **🎭 Tests de Simulación de Usuario:** cubierto por T14.3.1 (E2E real).
 
-### SF14.3: Verificación E2E real + Documentación [ ]
+### SF14.3: Verificación E2E real + Documentación [X]
 
-#### T14.3.1: E2E real contra Mailpit (sin mocks) [ ]
+#### T14.3.1: E2E real contra Mailpit (sin mocks) [X]
 - **🧠 Explicación:** El criterio de aceptación central de la Fase: demostrar con comandos reales (no mocks) que el correo se envía, se puede extraer, y el cambio de contraseña funciona de punta a punta.
 - **💡 Cómo hacerlo:**
   ```bash
@@ -912,14 +912,14 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   ```
   Documentar el script real usado (guardarlo en `tests/e2e/` si se generaliza, siguiendo el patrón de `test_auth_rls_e2e.sh`).
 - **Acciones:**
-  - `[ ]` A14.3.1.1: Script/comandos reales que verifican el flujo completo contra Mailpit.
+  - `[X]` A14.3.1.1: Script/comandos reales que verifican el flujo completo contra Mailpit. Formalizado en `tests/e2e/test_password_recovery_e2e.sh`.
 - **✅ Tests Unitarios:** N/A (es en sí mismo el test de simulación de usuario a nivel API).
-- **🎭 Tests de Simulación de Usuario:** flujo completo verificado end-to-end: solicitar → correo real en Mailpit → cambiar contraseña → login con la nueva.
+- **🎭 Tests de Simulación de Usuario:** flujo completo verificado end-to-end: solicitar → correo real en Mailpit → cambiar contraseña → login con la nueva. **8/8 PASS** (signup, recover, correo real capturado, OTP extraído, sesión de recuperación, cambio de contraseña, login con la nueva funciona, login con la vieja YA NO funciona).
 
-#### T14.3.2: ADR 13 en `architecture.md` [ ]
+#### T14.3.2: ADR 13 en `architecture.md` [X]
 - **🧠 Explicación:** Documentar la decisión de Mailpit sobre Mailhog, la config SMTP de GoTrue, y el mecanismo de `AuthChangeEvent.passwordRecovery`.
 - **💡 Cómo hacerlo:** ADR 13 con contexto (sin flujo de recuperación, sin SMTP), decisión (Mailpit + su API REST para E2E), y el flujo completo (resetPasswordForEmail → correo → passwordRecovery → updateUser).
 - **Acciones:**
-  - `[ ]` A14.3.2.1: ADR 13 en `architecture.md`.
+  - `[X]` A14.3.2.1: ADR 13 en `architecture.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
