@@ -163,3 +163,9 @@ models/
 
 # --- References ---
 reference/
+
+# --- E2E artifacts (screenshots regenerables) ---
+e2e/shots/
+
+# --- project-suite tooling ---
+.project-suite/
