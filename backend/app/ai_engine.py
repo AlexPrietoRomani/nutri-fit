@@ -107,3 +107,62 @@ def generate(cfg: AIConfig, prompt: str, want_json: bool = False) -> str:
         raise
     except Exception as exc:  # noqa: BLE001 - se envuelve para dar un 503 claro
         raise AIEngineError(f"Fallo del proveedor '{cfg.provider}': {exc}") from exc
+
+
+def _vision_openai_compatible(cfg: AIConfig, prompt: str, image_b64: str, want_json: bool) -> str:
+    """Análisis de imagen vía endpoint OpenAI-compatible (content block image_url)."""
+    from openai import OpenAI
+
+    client = OpenAI(api_key=cfg.api_key or "not-needed", base_url=_resolve_base_url(cfg))
+    content = [
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+    ]
+    kwargs: dict = {}
+    if want_json:
+        kwargs["response_format"] = {"type": "json_object"}
+    response = client.chat.completions.create(
+        model=cfg.model or "",
+        messages=[{"role": "user", "content": content}],
+        **kwargs,
+    )
+    return response.choices[0].message.content or ""
+
+
+def _vision_anthropic(cfg: AIConfig, prompt: str, image_b64: str, want_json: bool) -> str:
+    """Análisis de imagen vía SDK nativo de Anthropic (bloque image base64)."""
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=cfg.api_key) if cfg.api_key else anthropic.Anthropic()
+    response = client.messages.create(
+        model=cfg.model or DEFAULT_CLAUDE_MODEL,
+        max_tokens=1024,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}},
+                {"type": "text", "text": prompt},
+            ],
+        }],
+    )
+    return next((block.text for block in response.content if block.type == "text"), "")
+
+
+def generate_vision(cfg: AIConfig, prompt: str, image_b64: str, want_json: bool = False) -> str:
+    """Analiza una imagen (base64) enrutando al proveedor de ``cfg``.
+
+    Mismo enrutamiento que ``generate`` pero con contenido multimodal.
+    """
+    if cfg.provider not in SUPPORTED_PROVIDERS:
+        raise AIEngineError(
+            f"Proveedor no soportado: '{cfg.provider}'. "
+            f"Válidos: {', '.join(sorted(SUPPORTED_PROVIDERS))}."
+        )
+    try:
+        if cfg.provider == "claude":
+            return _vision_anthropic(cfg, prompt, image_b64, want_json)
+        return _vision_openai_compatible(cfg, prompt, image_b64, want_json)
+    except AIEngineError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise AIEngineError(f"Fallo de visión del proveedor '{cfg.provider}': {exc}") from exc

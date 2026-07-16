@@ -46,6 +46,7 @@ def fake_sdks(monkeypatch):
     class _FakeMessages:
         def create(self, model, max_tokens, messages):
             capture["anthropic_model"] = model
+            capture["anthropic_messages"] = messages
             block = types.SimpleNamespace(type="text", text="CLAUDE_REPLY")
             return types.SimpleNamespace(content=[block])
 
@@ -100,6 +101,38 @@ def test_proveedor_invalido_lanza(fake_sdks):
     cfg = AIConfig(provider="inexistente", model="m")
     with pytest.raises(AIEngineError):
         generate(cfg, "hola")
+
+
+def test_vision_claude_usa_bloque_image(fake_sdks):
+    from app.ai_engine import generate_vision
+    cfg = AIConfig(provider="claude", api_key="k", model="claude-opus-4-8")
+    out = generate_vision(cfg, "describe", "BASE64DATA")
+    assert out == "CLAUDE_REPLY"
+    content = fake_sdks["anthropic_messages"][0]["content"]
+    types_in_content = [b["type"] for b in content]
+    assert "image" in types_in_content
+    img = next(b for b in content if b["type"] == "image")
+    assert img["source"]["data"] == "BASE64DATA"
+
+
+@pytest.mark.parametrize("provider", ["openai", "gemini", "ollama"])
+def test_vision_openai_compatible_usa_image_url(fake_sdks, provider):
+    from app.ai_engine import generate_vision
+    cfg = AIConfig(provider=provider, api_key="k", model="m")
+    out = generate_vision(cfg, "describe", "BASE64DATA")
+    assert out == "OPENAI_REPLY"
+    content = fake_sdks["openai_messages"][0]["content"]
+    kinds = [b["type"] for b in content]
+    assert "image_url" in kinds
+    img = next(b for b in content if b["type"] == "image_url")
+    assert "BASE64DATA" in img["image_url"]["url"]
+
+
+def test_vision_proveedor_invalido_lanza(fake_sdks):
+    from app.ai_engine import generate_vision
+    cfg = AIConfig(provider="inexistente", model="m")
+    with pytest.raises(AIEngineError):
+        generate_vision(cfg, "describe", "B64")
 
 
 def test_fallo_de_proveedor_se_envuelve(monkeypatch):
