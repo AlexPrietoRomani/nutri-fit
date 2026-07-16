@@ -76,6 +76,25 @@ EXO_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$GATEWAY/rest/v1/exercises?
 [ "$EXO_STATUS" = "200" ] && pass "AC5: catálogo training.exercises accesible sin token (200)" \
   || fail "AC5: GET exercises sin token devolvió $EXO_STATUS (esperado 200)"
 
+# --- T13.1.1 (Fase F13, Rutinas Guardables) — A crea una rutina ---
+ROUTINE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$GATEWAY/rest/v1/routines" \
+  -H "Authorization: Bearer $TOKEN_A" -H "Content-Type: application/json" -H "Content-Profile: training" \
+  -d "{\"user_id\":\"$SUB_A\",\"name\":\"Test\",\"items\":[{\"exercise_id\":1,\"name\":\"Test Ex\",\"sets\":3,\"reps\":10,\"rpe\":8}]}")
+[ "$ROUTINE_STATUS" = "201" ] && pass "AC6: A pudo crear su propia rutina (201)" \
+  || fail "AC6: INSERT de rutina propia devolvió $ROUTINE_STATUS (esperado 201)"
+
+# --- AC7: A ve su rutina ---
+BODY_ROUTINES_A=$(curl -s "$GATEWAY/rest/v1/routines" -H "Authorization: Bearer $TOKEN_A" -H "Accept-Profile: training")
+COUNT_ROUTINES_A=$(echo "$BODY_ROUTINES_A" | python -c "import sys,json;print(len(json.load(sys.stdin)))")
+[ "$COUNT_ROUTINES_A" = "1" ] && pass "AC7: A ve exactamente 1 rutina (la propia)" \
+  || fail "AC7: A vio $COUNT_ROUTINES_A rutinas (esperado 1)"
+
+# --- AC8: B no ve la rutina de A ---
+BODY_ROUTINES_B=$(curl -s "$GATEWAY/rest/v1/routines" -H "Authorization: Bearer $TOKEN_B" -H "Accept-Profile: training")
+COUNT_ROUTINES_B=$(echo "$BODY_ROUTINES_B" | python -c "import sys,json;print(len(json.load(sys.stdin)))")
+[ "$COUNT_ROUTINES_B" = "0" ] && pass "AC8: B ve 0 rutinas de A" \
+  || fail "AC8: B vio $COUNT_ROUTINES_B rutinas (esperado 0)"
+
 if [ "$FAIL" = "0" ]; then
   echo "TODOS LOS TESTS E2E DE T10.2.1/T10.2.2 PASARON"
   exit 0
