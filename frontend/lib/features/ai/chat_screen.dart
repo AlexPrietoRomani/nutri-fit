@@ -5,7 +5,10 @@ import 'ai_settings_screen.dart';
 
 /// Pantalla de chat con el asistente de IA.
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  const ChatScreen({super.key, this.embedded = false});
+
+  /// true cuando se abre dentro de un [showModalBottomSheet] (ChatFab).
+  final bool embedded;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -42,6 +45,40 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final ai = context.watch<AiProvider>();
+    if (widget.embedded) {
+      return SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Asistente IA',
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.settings, color: Colors.white70),
+                    tooltip: 'Ajustes de IA',
+                    onPressed: _openSettings,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white70),
+                    tooltip: 'Cerrar',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(child: _buildBody(ai)),
+          ],
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('Asistente IA'),
@@ -53,8 +90,13 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
+      body: _buildBody(ai),
+    );
+  }
+
+  Widget _buildBody(AiProvider ai) {
+    return Column(
+      children: [
           if (!ai.hasConfig)
             MaterialBanner(
               content: const Text('No hay proveedor de IA configurado.'),
@@ -78,17 +120,24 @@ class _ChatScreenState extends State<ChatScreen> {
                 final isUser = m.role == 'user';
                 return Align(
                   alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isUser ? const Color(0xFF2ED573) : const Color(0xFF1E201E),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      m.text,
-                      style: TextStyle(color: isUser ? Colors.black : Colors.white),
-                    ),
+                  child: Column(
+                    crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isUser ? const Color(0xFF2ED573) : const Color(0xFF1E201E),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          m.text,
+                          style: TextStyle(color: isUser ? Colors.black : Colors.white),
+                        ),
+                      ),
+                      if (m.workout != null) _buildWorkoutCard(m.workout!),
+                      if (m.mealPlan != null) _buildMealPlanCard(m.mealPlan!),
+                    ],
                   ),
                 );
               },
@@ -137,6 +186,89 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
         ],
+    );
+  }
+
+  Widget _buildWorkoutCard(Map<String, dynamic> workout) {
+    final items = (workout['items'] as List?) ?? [];
+    final cardioBlock = workout['cardio_block']?.toString();
+    return Card(
+      color: const Color(0xFF1E201E),
+      margin: const EdgeInsets.only(top: 4, bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFF2E302E)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text('Rutina sugerida',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+            ),
+            for (final item in items)
+              ListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: Text('Ejercicio #${(item as Map)['exercise_id']}',
+                    style: const TextStyle(color: Colors.white, fontSize: 13)),
+                trailing: Text('${item['sets']}x${item['reps']} · RPE ${item['rpe']}',
+                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
+              ),
+            if (cardioBlock != null && cardioBlock.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.directions_run_rounded, color: Color(0xFF2ED573), size: 16),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(cardioBlock, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMealPlanCard(Map<String, dynamic> mealPlan) {
+    final meals = (mealPlan['meals'] as List?) ?? [];
+    return Card(
+      color: const Color(0xFF1E201E),
+      margin: const EdgeInsets.only(top: 4, bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFF2E302E)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text('Plan de comidas',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+            ),
+            for (final meal in meals)
+              ListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: Text('${(meal as Map)['food_name']}',
+                    style: const TextStyle(color: Colors.white, fontSize: 13)),
+                subtitle: Text(
+                  '${meal['meal_type']} · ${meal['calories']} kcal · P${meal['protein_g']} C${meal['carbs_g']} G${meal['fat_g']}',
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'nutrition_provider.dart';
 import '../ai/ai_provider.dart';
 import '../ai/vision_service.dart';
+import '../ai/chat_fab.dart';
 
 class DiaryScreen extends StatefulWidget {
   const DiaryScreen({super.key});
@@ -177,6 +178,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
           ),
         ],
       ),
+      floatingActionButton: const ChatFab(),
       body: Consumer<NutritionProvider>(
         builder: (context, provider, child) {
           if (provider.isLoading) {

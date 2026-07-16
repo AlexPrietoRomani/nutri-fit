@@ -8,7 +8,9 @@ import 'ai_config.dart';
 class ChatMessage {
   final String role; // 'user' | 'assistant'
   final String text;
-  ChatMessage(this.role, this.text);
+  final Map<String, dynamic>? workout;
+  final Map<String, dynamic>? mealPlan;
+  ChatMessage(this.role, this.text, {this.workout, this.mealPlan});
 }
 
 /// Estado del chat de IA: carga la config, envía mensajes al backend y mantiene
@@ -54,7 +56,7 @@ class AiProvider extends ChangeNotifier {
     }
   }
 
-  /// Envía un mensaje al endpoint /chat con la config del proveedor.
+  /// Envía un mensaje al endpoint /chat-plan (orquestador F11) con la config del proveedor.
   Future<void> sendMessage(String message, {Map<String, dynamic>? profile}) async {
     if (_config == null) {
       _error = 'Configura un proveedor de IA en Ajustes.';
@@ -68,7 +70,7 @@ class AiProvider extends ChangeNotifier {
 
     try {
       final resp = await _http.post(
-        Uri.parse('${AppConstants.aiServiceUrl}/chat'),
+        Uri.parse('${AppConstants.aiServiceUrl}/chat-plan'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'message': message,
@@ -77,8 +79,14 @@ class AiProvider extends ChangeNotifier {
         }),
       );
       if (resp.statusCode == 200) {
-        final reply = (jsonDecode(resp.body) as Map<String, dynamic>)['reply'] as String;
-        _messages.add(ChatMessage('assistant', reply));
+        final json = jsonDecode(resp.body) as Map<String, dynamic>;
+        final reply = json['reply'] as String;
+        _messages.add(ChatMessage(
+          'assistant',
+          reply,
+          workout: json['workout'] as Map<String, dynamic>?,
+          mealPlan: json['meal_plan'] as Map<String, dynamic>?,
+        ));
       } else {
         final detail = _extractDetail(resp.body);
         _error = 'Error ${resp.statusCode}: $detail';

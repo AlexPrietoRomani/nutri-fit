@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../nutrition/nutrition_provider.dart';
 import '../training/training_provider.dart';
 import '../auth/onboarding_provider.dart';
+import '../ai/chat_fab.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -95,6 +96,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
+      floatingActionButton: const ChatFab(),
       body: nutritionProv.isLoading || trainingProv.isLoading
           ? const Center(
               child: CircularProgressIndicator(
