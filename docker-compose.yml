@@ -83,9 +83,26 @@ services:
       GOTRUE_JWT_EXP: 3600
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMTP_HOST: mailpit
+      GOTRUE_SMTP_PORT: "1025"
+      GOTRUE_SMTP_USER: "test"
+      GOTRUE_SMTP_PASS: "test"
+      GOTRUE_SMTP_SENDER_NAME: "Nutri-Fit"
+      GOTRUE_SMTP_ADMIN_EMAIL: "no-reply@nutrifit.local"
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_started
+    networks:
+      - nutrifit-network
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: nutri-fit-mailpit
+    ports:
+      - "8025:8025"  # UI web + API REST
+      - "1025:1025"  # SMTP
     networks:
       - nutrifit-network
 

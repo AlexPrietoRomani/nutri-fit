@@ -787,9 +787,9 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 > `AuthScreen` (F10) solo tiene login/signup — sin recuperación de contraseña (verificado por grep, cero resultados). GoTrue puede enviarla, pero el stack no tiene SMTP configurado.
 > **AC de Fase:** servicio `mailpit` (SMTP + UI + API REST) · enlace "¿Olvidaste tu contraseña?" → `resetPasswordForEmail` · detección de `AuthChangeEvent.passwordRecovery` → pantalla de nueva contraseña → `updateUser` · E2E real (correo capturado por Mailpit, no simulado) · ADR 13. **NO toca diseno_db.md.**
 
-### SF14.1: Mailer local (infra) [ ]
+### SF14.1: Mailer local (infra) [X]
 
-#### T14.1.1: Servicio `mailpit` + `GOTRUE_SMTP_*` [ ]
+#### T14.1.1: Servicio `mailpit` + `GOTRUE_SMTP_*` [X]
 - **🧠 Explicación:** Mailpit (no Mailhog, sin mantenimiento desde 2020) captura correos SMTP sin enviarlos de verdad — expone una UI web para verlos y una API REST (`GET /api/v1/messages`) para extraerlos programáticamente, clave para el E2E de T14.3.1 sin depender de un navegador.
 - **💡 Cómo hacerlo:** en `docker-compose.yml`:
   ```yaml
@@ -813,8 +813,8 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   ```
   `GOTRUE_SITE_URL` (ya en `http://localhost:8080` desde F10) sigue sirviendo como base para el link del correo; `auth: depends_on: [postgres, mailpit]`.
 - **Acciones:**
-  - `[ ]` A14.1.1.1: Servicio `mailpit` en `docker-compose.yml`.
-  - `[ ]` A14.1.1.2: `GOTRUE_SMTP_*` apuntando a Mailpit.
+  - `[X]` A14.1.1.1: Servicio `mailpit` en `docker-compose.yml`.
+  - `[X]` A14.1.1.2: `GOTRUE_SMTP_*` apuntando a Mailpit. Verificado con correo real: signup → recover → correo capturado en Mailpit con link + código OTP de recuperación.
 - **✅ Tests Unitarios:** N/A (config de infra); verificación manual — `docker compose up`, `curl http://localhost:8025/api/v1/messages` responde (aunque vacío al inicio).
 - **🎭 Tests de Simulación de Usuario:** N/A (infra, cubierto por T14.3.1).
 
