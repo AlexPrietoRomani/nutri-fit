@@ -5,11 +5,11 @@ import 'package:nutrifit/features/training/active_workout_screen.dart';
 import 'package:nutrifit/features/training/training_provider.dart';
 
 void main() {
-  Exercise buildExercise({required int id, required String name, List<String> imageUrls = const []}) {
+  Exercise buildExercise({required int id, required String name, List<String> imageUrls = const [], String category = 'strength'}) {
     return Exercise(
       id: id,
       name: name,
-      category: 'strength',
+      category: category,
       targetMuscle: 'chest',
       equipment: 'barbell',
       instructionsEn: const ['Paso 1', 'Paso 2'],
@@ -207,5 +207,42 @@ void main() {
     final card = tester.widget<Card>(find.byType(Card));
     final shape = card.shape as RoundedRectangleBorder;
     expect(shape.side.color, Colors.transparent);
+  });
+
+  testWidgets('un ejercicio de cardio muestra campos Tiempo/Distancia, no peso/reps/rpe', (tester) async {
+    final exercise = buildExercise(id: 7, name: 'Correr', category: 'cardio');
+    final provider = buildProvider(
+      exercises: [exercise],
+      sets: [
+        WorkoutSet(sessionId: 'session-1', exerciseId: 7, setNumber: 1, weight: 0, reps: 0, durationMin: 20, distanceKm: 3),
+      ],
+    );
+
+    await tester.pumpWidget(wrap(provider));
+    await tester.pump();
+
+    expect(find.text('TIEMPO (min)'), findsOneWidget);
+    expect(find.text('DISTANCIA (km)'), findsOneWidget);
+    expect(find.text('PESO (kg)'), findsNothing);
+    expect(find.text('REPS'), findsNothing);
+    expect(find.text('RPE'), findsNothing);
+  });
+
+  testWidgets('un ejercicio de fuerza sigue mostrando peso/reps/rpe', (tester) async {
+    final exercise = buildExercise(id: 8, name: 'Press Banca');
+    final provider = buildProvider(
+      exercises: [exercise],
+      sets: [
+        WorkoutSet(sessionId: 'session-1', exerciseId: 8, setNumber: 1, weight: 10, reps: 10, completed: false),
+      ],
+    );
+
+    await tester.pumpWidget(wrap(provider));
+    await tester.pump();
+
+    expect(find.text('PESO (kg)'), findsOneWidget);
+    expect(find.text('REPS'), findsOneWidget);
+    expect(find.text('RPE'), findsOneWidget);
+    expect(find.text('TIEMPO (min)'), findsNothing);
   });
 }

@@ -114,6 +114,9 @@ class WorkoutSet {
   final int reps;
   final double? rpe;
   final bool completed;
+  // Campos de cardio (T17.2.2): nulos para sets de fuerza.
+  final double? durationMin;
+  final double? distanceKm;
 
   WorkoutSet({
     this.id,
@@ -124,6 +127,8 @@ class WorkoutSet {
     required this.reps,
     this.rpe,
     this.completed = true,
+    this.durationMin,
+    this.distanceKm,
   });
 
   factory WorkoutSet.fromJson(Map<String, dynamic> json) {
@@ -136,6 +141,8 @@ class WorkoutSet {
       reps: json['reps'] as int,
       rpe: json['rpe'] != null ? (json['rpe'] as num).toDouble() : null,
       completed: json['completed'] as bool? ?? true,
+      durationMin: json['duration_min'] != null ? (json['duration_min'] as num).toDouble() : null,
+      distanceKm: json['distance_km'] != null ? (json['distance_km'] as num).toDouble() : null,
     );
   }
 
@@ -150,6 +157,8 @@ class WorkoutSet {
     };
     if (id != null) data['id'] = id;
     if (rpe != null) data['rpe'] = rpe;
+    if (durationMin != null) data['duration_min'] = durationMin;
+    if (distanceKm != null) data['distance_km'] = distanceKm;
     return data;
   }
 }
@@ -412,7 +421,7 @@ class TrainingProvider extends ChangeNotifier {
   }
 
   /// Actualizar datos de un set localmente.
-  void updateSetData(int index, {double? weight, int? reps, double? rpe, bool? completed}) {
+  void updateSetData(int index, {double? weight, int? reps, double? rpe, bool? completed, double? durationMin, double? distanceKm}) {
     if (index < 0 || index >= _activeSets.length) return;
     final original = _activeSets[index];
     _activeSets[index] = WorkoutSet(
@@ -424,6 +433,8 @@ class TrainingProvider extends ChangeNotifier {
       reps: reps ?? original.reps,
       rpe: rpe ?? original.rpe,
       completed: completed ?? original.completed,
+      durationMin: durationMin ?? original.durationMin,
+      distanceKm: distanceKm ?? original.distanceKm,
     );
     notifyListeners();
   }
@@ -450,6 +461,8 @@ class TrainingProvider extends ChangeNotifier {
         reps: oldSet.reps,
         rpe: oldSet.rpe,
         completed: oldSet.completed,
+        durationMin: oldSet.durationMin,
+        distanceKm: oldSet.distanceKm,
       );
     }
 
@@ -512,19 +525,54 @@ class TrainingProvider extends ChangeNotifier {
   List<WorkoutSession> get completedSessions => _completedSessions;
   List<WorkoutSet> get completedSets => _completedSets;
 
-  double get todayCaloriesBurned {
-    // Estimación: 6 calorías por minuto de entrenamiento realizado.
-    double totalCalories = 0.0;
-    for (final session in _completedSessions) {
-      if (session.endedAt != null) {
+  /// MET aproximado a partir de la velocidad (km/h), umbrales del Compendium.
+  static double metFromSpeed(double kmh) {
+    if (kmh <= 0) return 0;
+    if (kmh < 6.4) return 3.5 + (kmh / 6.4) * 1.5; // caminar: ~3.5–5
+    if (kmh < 8.0) return 7.0 + (kmh - 6.4) / 1.6 * 1.3; // trotar: ~7–8.3
+    if (kmh < 11.0) return 9.0 + (kmh - 8.0) / 3.0 * 2.0; // correr: ~9–11
+    return 11.5 + (kmh - 11.0) * 0.3; // correr rápido: 11.5+
+  }
+
+  /// Gasto calórico de un conjunto de sesiones completadas y sus sets.
+  /// Función pura (sin Supabase) para poder testearla (INC-015).
+  ///
+  /// Por cada sesión: si tiene sets de cardio (`durationMin` no nulo) suma
+  /// `MET · peso · horas` por set (el MET viene del ritmo distancia/tiempo);
+  /// si no tiene cardio, mantiene la estimación por duración (6 kcal/min) para
+  /// que una sesión de solo fuerza no caiga a 0.
+  static double caloriesBurnedForSessions(
+    double weightKg,
+    List<WorkoutSession> sessions,
+    List<WorkoutSet> sets,
+  ) {
+    double total = 0.0;
+    for (final session in sessions) {
+      final cardioSets = sets
+          .where((s) => s.sessionId == session.id && s.durationMin != null && s.durationMin! > 0)
+          .toList();
+      if (cardioSets.isNotEmpty) {
+        for (final s in cardioSets) {
+          final hours = s.durationMin! / 60.0;
+          final kmh = (s.distanceKm ?? 0) / hours;
+          total += metFromSpeed(kmh) * weightKg * hours;
+        }
+      } else if (session.endedAt != null) {
         final durationMin = session.endedAt!.difference(session.startedAt).inMinutes;
         // Mínimo 15 min por sesión para evitar estimaciones absurdas por entrenamientos vacíos
         final activeMin = durationMin > 0 ? durationMin : 15;
-        totalCalories += activeMin * 6.0;
+        total += activeMin * 6.0;
       }
     }
-    return totalCalories;
+    return total;
   }
+
+  /// Gasto calórico de hoy usando el peso real del usuario.
+  double caloriesBurnedToday(double weightKg) =>
+      caloriesBurnedForSessions(weightKg, _completedSessions, _completedSets);
+
+  /// Gasto de hoy con peso por defecto (70 kg) para llamadas sin perfil.
+  double get todayCaloriesBurned => caloriesBurnedToday(70.0);
 
   Future<void> loadCompletedWorkouts(DateTime date) async {
     _isLoading = true;

@@ -77,6 +77,14 @@ void main() {
       // Carbs: (1200 - (480 + 540)) / 4 = 180 / 4 = 45g
       expect(provider.targetCarbs, 45.0);
     });
+    test('buildUserPayload incluye weight_kg (T17.2.1)', () {
+      final provider = OnboardingProvider();
+      provider.setWeight(82.5);
+      final payload = provider.buildUserPayload('user-1');
+      expect(payload['weight_kg'], 82.5);
+      expect(payload['id'], 'user-1');
+    });
+
     group('Database operations mock testing outline', () {
       // Standard integration mocks or database calls would be verified here.
     });

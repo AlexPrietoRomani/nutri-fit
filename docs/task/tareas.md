@@ -1128,23 +1128,23 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** `count >= 40`; accesible sin token (extender `test_auth_rls_e2e.sh`, como el caso de `exercises`).
 - **🎭 Tests de Simulación de Usuario:** cubierto por SF17.4.
 
-### SF17.2: Cardio con METs [ ]
+### SF17.2: Cardio con METs [X]
 
-#### T17.2.1: Persistir `weight_kg` en el onboarding/perfil [ ]
+#### T17.2.1: Persistir `weight_kg` en el onboarding/perfil [X]
 - **🧠 Explicación:** El onboarding ya captura `_weightKg`; hay que incluirlo en el INSERT/UPSERT a `public.users` (hoy no se guarda) y leerlo en el perfil.
 - **💡 Cómo hacerlo:** en `onboarding_provider.dart` (`saveProfile()`), añadir `'weight_kg': _weightKg` al `insert`. En `loadProfile()`, leer `weight_kg`. Getter accesible para el cálculo MET.
 - **Acciones:**
-  - `[ ]` A17.2.1.1: `saveProfile` guarda `weight_kg`.
-  - `[ ]` A17.2.1.2: `loadProfile` lo lee + getter accesible.
+  - `[X]` A17.2.1.1: `saveProfile` guarda `weight_kg`.
+  - `[X]` A17.2.1.2: `loadProfile` lo lee + getter accesible.
 - **✅ Tests Unitarios:** el payload de `saveProfile` incluye `weight_kg`.
 - **🎭 Tests de Simulación de Usuario:** completar onboarding → peso persistido en `public.users`.
 
-#### T17.2.2: Input de cardio + `todayCaloriesBurned` por METs [ ]
+#### T17.2.2: Input de cardio + `todayCaloriesBurned` por METs [X]
 - **🧠 Explicación:** Un ejercicio `category='cardio'` en el tracker pide tiempo+distancia (no peso/reps). Gasto por METs (kcal = MET × peso_kg × horas); para cardio el MET sale del ritmo (km/h → MET vía umbrales del Compendium); fuerza mantiene estimación por duración.
 - **💡 Cómo hacerlo:** en `active_workout_screen.dart`, si `exercise.category == 'cardio'`, campos "Tiempo (min)"/"Distancia (km)" en vez de peso/reps (persistir en `duration_min`/`distance_km`). En `training_provider.dart`, `metFromSpeed(distance_km/(duration_min/60))` + `kcal = met * weightKg * (duration_min/60)` para cardio; resto por duración. Peso del perfil (T17.2.1); default 70 con comentario si falta.
 - **Acciones:**
-  - `[ ]` A17.2.2.1: UI de tiempo+distancia para cardio; persistir en `workout_sets`.
-  - `[ ]` A17.2.2.2: `metFromSpeed` + `todayCaloriesBurned` por METs.
+  - `[X]` A17.2.2.1: UI de tiempo+distancia para cardio; persistir en `workout_sets`.
+  - `[X]` A17.2.2.2: `metFromSpeed` + `caloriesBurnedForSessions` por METs (cardio por ritmo, fuerza por duración). Verificado: 30min/5km > 20min/2km, fuerza no cae a 0.
 - **✅ Tests Unitarios:** 30 min/5 km > 20 min/2 km en kcal; correr > caminar en MET; sesión de solo fuerza no cae a 0.
 - **🎭 Tests de Simulación de Usuario:** registrar "Running, Treadmill" 30 min/5 km → kcal coherentes y distintas a 20 min/2 km.
 

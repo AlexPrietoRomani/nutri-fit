@@ -333,7 +333,8 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                           itemBuilder: (context, exIndex) {
                             final exId = provider.activeExercisesIds.elementAt(exIndex);
                             final exercise = provider.exercises.firstWhere((e) => e.id == exId);
-                            
+                            final isCardio = exercise.category == 'cardio';
+
                             // Sets correspondientes a este ejercicio
                             final exerciseSets = provider.activeSets.where((s) => s.exerciseId == exId).toList();
                             final allDone = exerciseSets.isNotEmpty && exerciseSets.every((s) => s.completed);
@@ -391,12 +392,17 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                                     
                                     // Encabezados de Tabla de Sets
                                     Row(
-                                      children: const [
-                                        SizedBox(width: 32, child: Text('SERIE', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
-                                        Expanded(child: Text('PESO (kg)', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
-                                        Expanded(child: Text('REPS', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
-                                        Expanded(child: Text('RPE', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
-                                        SizedBox(width: 48, child: Text('HECHO', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
+                                      children: [
+                                        const SizedBox(width: 32, child: Text('SERIE', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
+                                        if (isCardio) ...const [
+                                          Expanded(child: Text('TIEMPO (min)', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
+                                          Expanded(child: Text('DISTANCIA (km)', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
+                                        ] else ...const [
+                                          Expanded(child: Text('PESO (kg)', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
+                                          Expanded(child: Text('REPS', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
+                                          Expanded(child: Text('RPE', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
+                                        ],
+                                        const SizedBox(width: 48, child: Text('HECHO', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))),
                                       ],
                                     ),
                                     const Divider(color: Colors.grey),
@@ -443,6 +449,58 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                                                     ),
                                                   ),
                                                 ),
+                                                if (isCardio) ...[
+                                                  // Tiempo (min)
+                                                  Expanded(
+                                                    child: Padding(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                                                      child: TextFormField(
+                                                        initialValue: workoutSet.durationMin?.toString() ?? '',
+                                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                                        textAlign: TextAlign.center,
+                                                        style: const TextStyle(fontSize: 14, color: Colors.white),
+                                                        decoration: const InputDecoration(
+                                                          isDense: true,
+                                                          hintText: '-',
+                                                          hintStyle: TextStyle(color: Colors.grey),
+                                                          contentPadding: EdgeInsets.symmetric(vertical: 8),
+                                                          border: OutlineInputBorder(),
+                                                        ),
+                                                        onChanged: (val) {
+                                                          final parsed = double.tryParse(val);
+                                                          if (parsed != null) {
+                                                            provider.updateSetData(globalIndex, durationMin: parsed);
+                                                          }
+                                                        },
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  // Distancia (km)
+                                                  Expanded(
+                                                    child: Padding(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                                                      child: TextFormField(
+                                                        initialValue: workoutSet.distanceKm?.toString() ?? '',
+                                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                                        textAlign: TextAlign.center,
+                                                        style: const TextStyle(fontSize: 14, color: Colors.white),
+                                                        decoration: const InputDecoration(
+                                                          isDense: true,
+                                                          hintText: '-',
+                                                          hintStyle: TextStyle(color: Colors.grey),
+                                                          contentPadding: EdgeInsets.symmetric(vertical: 8),
+                                                          border: OutlineInputBorder(),
+                                                        ),
+                                                        onChanged: (val) {
+                                                          final parsed = double.tryParse(val);
+                                                          if (parsed != null) {
+                                                            provider.updateSetData(globalIndex, distanceKm: parsed);
+                                                          }
+                                                        },
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ] else ...[
                                                 // Peso
                                                 Expanded(
                                                   child: Padding(
@@ -512,6 +570,7 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                                                     ),
                                                   ),
                                                 ),
+                                                ],
                                                 // Hecho Checkbox
                                                 SizedBox(
                                                   width: 48,
