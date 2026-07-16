@@ -1103,7 +1103,7 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ---
 
-## F17: Cardio con METs + Búsqueda de Ejercicios por Músculo + Catálogo de Comida Peruana [ ]
+## F17: Cardio con METs + Búsqueda de Ejercicios por Músculo + Catálogo de Comida Peruana [X]
 
 > 3 frentes sobre datos: (1) el cardio existe pero su gasto es plano → cálculo por METs con peso real y ritmo; (2) "Agregar ejercicio" sin buscador → búsqueda + filtro por músculo (datos `body_part`/`secondary_muscles` ya existen); (3) sin dataset de comida → catálogo curado de platos peruanos (híbrido con OpenFoodFacts ya integrado).
 > **AC de Fase:** `public.users.weight_kg` + `workout_sets.duration_min`/`distance_km` + `nutrition.food_catalog` (≥40 platos, lectura pública) · peso persistido en onboarding · input cardio (tiempo+distancia) · `todayCaloriesBurned` por METs · buscador+filtro por músculo · buscador de comida en el Diario · ADR 15. **Requiere `docker compose down -v`.**
@@ -1170,13 +1170,13 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** `searchFoodCatalog` arma la query `ilike` correcta (seam mockeado); elegir un resultado prellena el borrador.
 - **🎭 Tests de Simulación de Usuario:** buscar "arroz con pollo" → prellena macros → guardar → aparece en el día.
 
-### SF17.5: Documentación [ ]
+### SF17.5: Documentación [X]
 
-#### T17.5.1: ADR 15 + esquema en `diseno_db.md` [ ]
+#### T17.5.1: ADR 15 + esquema en `diseno_db.md` [X]
 - **🧠 Explicación:** Documentar el cálculo MET, el catálogo híbrido de comida, y las columnas nuevas.
 - **💡 Cómo hacerlo:** ADR 15 en `architecture.md`; `weight_kg`/`workout_sets` cardio cols/`food_catalog` en `diseno_db.md`.
 - **Acciones:**
-  - `[ ]` A17.5.1.1: ADR 15 en `architecture.md`.
-  - `[ ]` A17.5.1.2: Columnas + `food_catalog` en `diseno_db.md`.
+  - `[X]` A17.5.1.1: ADR 15 en `architecture.md`.
+  - `[X]` A17.5.1.2: `weight_kg` + cardio cols + `food_catalog` en `diseno_db.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
