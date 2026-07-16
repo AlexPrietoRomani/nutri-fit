@@ -1108,23 +1108,23 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 > 3 frentes sobre datos: (1) el cardio existe pero su gasto es plano → cálculo por METs con peso real y ritmo; (2) "Agregar ejercicio" sin buscador → búsqueda + filtro por músculo (datos `body_part`/`secondary_muscles` ya existen); (3) sin dataset de comida → catálogo curado de platos peruanos (híbrido con OpenFoodFacts ya integrado).
 > **AC de Fase:** `public.users.weight_kg` + `workout_sets.duration_min`/`distance_km` + `nutrition.food_catalog` (≥40 platos, lectura pública) · peso persistido en onboarding · input cardio (tiempo+distancia) · `todayCaloriesBurned` por METs · buscador+filtro por músculo · buscador de comida en el Diario · ADR 15. **Requiere `docker compose down -v`.**
 
-### SF17.1: Esquema (DB) [ ]
+### SF17.1: Esquema (DB) [X]
 
-#### T17.1.1: `weight_kg` + columnas de cardio en `workout_sets` [ ]
+#### T17.1.1: `weight_kg` + columnas de cardio en `workout_sets` [X]
 - **🧠 Explicación:** El peso del usuario se captura en el onboarding pero se descarta (solo BMR local); el MET lo necesita. `workout_sets` no tiene dónde guardar tiempo/distancia de cardio.
 - **💡 Cómo hacerlo:** nuevo archivo `docker/postgres/zzzz4_cardio_and_weight.sql` con `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS weight_kg REAL;` y `ALTER TABLE training.workout_sets ADD COLUMN IF NOT EXISTS duration_min REAL; ... distance_km REAL;`. Montar en `docker-compose.yml` tras `zzzz3_meal_plans.sql`. Nullable (fuerza las deja NULL).
 - **Acciones:**
-  - `[ ]` A17.1.1.1: `public.users.weight_kg` (nullable REAL).
-  - `[ ]` A17.1.1.2: `training.workout_sets.duration_min`/`distance_km` (nullable REAL).
+  - `[X]` A17.1.1.1: `public.users.weight_kg` (nullable REAL).
+  - `[X]` A17.1.1.2: `training.workout_sets.duration_min`/`distance_km` (nullable REAL).
 - **✅ Tests Unitarios:** columnas existen tras `up`; RLS de `users`/`workout_sets` sin cambios.
 - **🎭 Tests de Simulación de Usuario:** N/A (cubierto por SF17.2).
 
-#### T17.1.2: `nutrition.food_catalog` + seed de platos peruanos [ ]
+#### T17.1.2: `nutrition.food_catalog` + seed de platos peruanos [X]
 - **🧠 Explicación:** Catálogo curado de comida peruana (lectura pública, como `training.exercises` — sin dueño, sin RLS restrictivo). Macros = estimaciones documentadas.
 - **💡 Cómo hacerlo:** `CREATE TABLE nutrition.food_catalog (id, name, category, calories, protein_g, carbs_g, fat_g, serving_size_g)` + `GRANT SELECT ... TO anon, authenticated` + INSERTs de ≥40 platos peruanos (arroz con pollo, ceviche, lomo saltado, pollo a la brasa, ají de gallina, causa, turrón, etc.) con macros aprox por porción. En un `.sql` de init nuevo.
 - **Acciones:**
-  - `[ ]` A17.1.2.1: Tabla `nutrition.food_catalog` + `GRANT SELECT` público.
-  - `[ ]` A17.1.2.2: Seed de ≥40 platos peruanos con macros aproximadas.
+  - `[X]` A17.1.2.1: Tabla `nutrition.food_catalog` + `GRANT SELECT` público.
+  - `[X]` A17.1.2.2: Seed de 50 platos peruanos con macros aproximadas. Verificado: 14/14 E2E (lectura pública sin token).
 - **✅ Tests Unitarios:** `count >= 40`; accesible sin token (extender `test_auth_rls_e2e.sh`, como el caso de `exercises`).
 - **🎭 Tests de Simulación de Usuario:** cubierto por SF17.4.
 

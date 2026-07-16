@@ -115,6 +115,17 @@ MEALPLAN2_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$GATEWAY/rest
 [ "$MEALPLAN2_STATUS" = "409" ] && pass "AC11: segundo meal_plan default del mismo usuario rechazado (409, uq_meal_plans_default_per_user)" \
   || fail "AC11: segundo INSERT default devolvió $MEALPLAN2_STATUS (esperado 409 por índice único parcial)"
 
+# --- T17.1.2 (Fase F17, Búsqueda de Comida) — catálogo de comida público, sin token ---
+FOOD_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$GATEWAY/rest/v1/food_catalog?limit=1" -H "Accept-Profile: nutrition")
+[ "$FOOD_STATUS" = "200" ] && pass "AC12: catálogo nutrition.food_catalog accesible sin token (200)" \
+  || fail "AC12: GET food_catalog sin token devolvió $FOOD_STATUS (esperado 200)"
+
+# --- AC13: el catálogo devuelve datos (no vacío) sin token ---
+FOOD_BODY=$(curl -s "$GATEWAY/rest/v1/food_catalog?limit=1" -H "Accept-Profile: nutrition")
+FOOD_COUNT=$(echo "$FOOD_BODY" | python -c "import sys,json;print(len(json.load(sys.stdin)))")
+[ "$FOOD_COUNT" = "1" ] && pass "AC13: food_catalog devuelve datos sin token (1 fila con limit=1)" \
+  || fail "AC13: food_catalog devolvió $FOOD_COUNT filas (esperado 1)"
+
 if [ "$FAIL" = "0" ]; then
   echo "TODOS LOS TESTS E2E DE T10.2.1/T10.2.2 PASARON"
   exit 0
