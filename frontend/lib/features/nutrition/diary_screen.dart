@@ -455,6 +455,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
 
   Widget _buildMealSection(BuildContext context, String title, String mealType, List<FoodLog> logs) {
     final sectionCalories = logs.fold<double>(0, (sum, item) => sum + item.calories);
+    final planWidget = _buildPlanVsActual(context, mealType, sectionCalories, logs);
 
     return Container(
       decoration: BoxDecoration(
@@ -487,6 +488,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
         ),
         children: [
           const Divider(color: Color(0xFF2E302E), height: 1),
+          if (planWidget != null) planWidget,
           if (logs.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 20, horizontal: 16),
@@ -571,6 +573,58 @@ class _DiaryScreenState extends State<DiaryScreen> {
           ),
         ],
         ),
+      ),
+    );
+  }
+
+  /// Compara lo planificado (plan default, si hay) contra lo realmente
+  /// registrado (`logs`) para un `mealType` (T16.3.1). Devuelve `null` si no
+  /// hay plan default o el plan no tiene nada para este tipo de comida —
+  /// en ese caso `_buildMealSection` queda exactamente igual que antes.
+  Widget? _buildPlanVsActual(BuildContext context, String mealType, double actualCalories, List<FoodLog> logs) {
+    final defaultPlan = context.watch<NutritionProvider>().defaultMealPlan;
+    if (defaultPlan == null) return null;
+
+    final plannedItems = (defaultPlan['meals'] as List? ?? const [])
+        .cast<Map<String, dynamic>>()
+        .where((m) => m['meal_type'] == mealType)
+        .toList();
+    if (plannedItems.isEmpty) return null;
+
+    final plannedCalories = plannedItems.fold<double>(0, (sum, m) => sum + (m['calories'] as num).toDouble());
+    final plannedNames = plannedItems.map((m) => m['food_name'] as String).join(', ');
+
+    String deltaText;
+    Color deltaColor;
+    if (logs.isEmpty) {
+      deltaText = 'Aún no registrado';
+      deltaColor = Colors.grey;
+    } else if (actualCalories > plannedCalories * 1.1) {
+      deltaText = '${(actualCalories - plannedCalories).round()} kcal de más';
+      deltaColor = Colors.orangeAccent;
+    } else if (actualCalories < plannedCalories * 0.9) {
+      deltaText = '${(plannedCalories - actualCalories).round()} kcal de menos';
+      deltaColor = Colors.redAccent;
+    } else {
+      deltaText = 'En línea con el plan';
+      deltaColor = const Color(0xFF2ED573);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Planificado: $plannedNames · ${plannedCalories.round()} kcal',
+            style: const TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            deltaText,
+            style: TextStyle(color: deltaColor, fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+        ],
       ),
     );
   }

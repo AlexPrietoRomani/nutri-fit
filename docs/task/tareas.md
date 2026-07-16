@@ -1057,15 +1057,15 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** provider test — marcar un ítem como default dentro de una lista con otro ya marcado deja exactamente uno marcado (el nuevo). Verificado: 59/59 tests, sin regresión (2 incidentes reales encontrados y corregidos: INC-017 constructor eager de Supabase, INC-018 ExpansionTile sin Material intermedio).
 - **🎭 Tests de Simulación de Usuario:** con 2+ rutinas/planes guardados, marcar uno como predeterminado → el anterior se desmarca automáticamente → se refleja en el Dashboard (T16.5.1).
 
-### SF16.3: Comparación planificado vs real (Diario) [ ]
+### SF16.3: Comparación planificado vs real (Diario) [X]
 
-#### T16.3.1: Planificado vs real por tipo de comida [ ]
+#### T16.3.1: Planificado vs real por tipo de comida [X]
 - **🧠 Explicación:** Para cada sección de comida del día (`_buildMealSection`, ya existente en `diary_screen.dart`), si hay un plan de comida default, mostrar el ítem planificado de ese `meal_type` junto a lo realmente registrado, con el delta de calorías.
 - **💡 Cómo hacerlo:** al cargar el Diario, además de `loadDailyData`, buscar el plan default del usuario (`NutritionProvider.fetchDefaultMealPlan()` o filtrar de `fetchMealPlans()` el que tenga `is_default`); en `_buildMealSection`, antes/después de la lista de `FoodLog` reales, si existe un ítem planificado para ese `meal_type` en el plan default, un bloque compacto "Planificado: `<food_name>` · `<calories>` kcal" con un indicador de delta (`real - planificado`, con color verde/rojo/gris según esté cerca, por encima, o sin registrar aún). Sin plan default, no mostrar nada nuevo (comportamiento actual intacto).
 - **Acciones:**
-  - `[ ]` A16.3.1.1: Obtener el plan default al cargar el Diario.
-  - `[ ]` A16.3.1.2: Bloque de comparación planificado-vs-real por tipo de comida, con delta.
-- **✅ Tests Unitarios:** con un plan default mockeado y logs reales variados (sin registro, exacto, de más, de menos), el delta calculado es correcto en cada caso.
+  - `[X]` A16.3.1.1: Obtener el plan default al cargar el Diario (`defaultMealPlan` getter + `fetchMealPlans` en `initState`).
+  - `[X]` A16.3.1.2: Bloque de comparación planificado-vs-real por tipo de comida, con delta (`_buildPlanVsActual`: sin registro/en línea/de más/de menos).
+- **✅ Tests Unitarios:** con un plan default mockeado y logs reales variados (sin registro, exacto, de más, de menos), el delta calculado es correcto en cada caso. Verificado: 5 casos en `diary_screen_test.dart`, suite completa verde.
 - **🎭 Tests de Simulación de Usuario:** con un plan de comida marcado como predeterminado, abrir el Diario de hoy → ver lo planificado junto a lo real por cada comida.
 
 ### SF16.4: Escáner de código de barras real [ ]

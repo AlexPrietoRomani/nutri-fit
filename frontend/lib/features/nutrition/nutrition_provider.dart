@@ -116,6 +116,16 @@ class NutritionProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   List<Map<String, dynamic>> get mealPlans => List.unmodifiable(_mealPlans);
 
+  /// Plan de comida marcado como predeterminado (`is_default == true`), o
+  /// `null` si no hay ninguno marcado (T16.3.1). Usado por `DiaryScreen`
+  /// para comparar lo planificado vs. lo realmente registrado por comida.
+  Map<String, dynamic>? get defaultMealPlan {
+    for (final plan in _mealPlans) {
+      if (plan['is_default'] == true) return plan;
+    }
+    return null;
+  }
+
   double get totalCalories => _foodLogs.fold(0, (sum, item) => sum + item.calories);
   double get totalProtein => _foodLogs.fold(0, (sum, item) => sum + item.proteinG);
   double get totalCarbs => _foodLogs.fold(0, (sum, item) => sum + item.carbsG);
