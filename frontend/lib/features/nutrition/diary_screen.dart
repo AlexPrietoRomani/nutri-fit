@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'nutrition_provider.dart';
 import '../ai/ai_provider.dart';
 import '../ai/vision_service.dart';
@@ -563,7 +564,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       padding: const EdgeInsets.symmetric(vertical: 10),
                     ),
-                    onPressed: () => _showBarcodeScannerMockDialog(context, mealType),
+                    onPressed: () => _showBarcodeScannerDialog(context, mealType),
                     icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
                     label: const Text('Escanear', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                   ),
@@ -756,101 +757,91 @@ class _DiaryScreenState extends State<DiaryScreen> {
     );
   }
 
-  void _showBarcodeScannerMockDialog(BuildContext context, String mealType) {
-    final barcodes = [
-      {'code': '7501055310884', 'label': 'Atún en Agua Tuny (Alta Proteína)'},
-      {'code': '7501000111207', 'label': 'Leche Entera Lala'},
-      {'code': '0041220516599', 'label': 'Avena Quaker Organic'},
-      {'code': '7501011122334', 'label': 'Código Cualquiera (Crea alimento dinámico)'},
-    ];
-
-    String selectedBarcode = barcodes[0]['code']!;
+  void _showBarcodeScannerDialog(BuildContext context, String mealType) {
     final manualController = TextEditingController();
 
     showDialog(
       context: context,
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF1E201E),
-              title: const Row(
-                children: [
-                  Icon(Icons.qr_code_scanner_rounded, color: Color(0xFF2ED573)),
-                  SizedBox(width: 10),
-                  Text('Escanear Código de Barras', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-                ],
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E201E),
+          title: const Row(
+            children: [
+              Icon(Icons.qr_code_scanner_rounded, color: Color(0xFF2ED573)),
+              SizedBox(width: 10),
+              Text('Escanear Código de Barras', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Apunta la cámara al código de barras del producto:',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Simula el escaneo seleccionando un producto de prueba o ingresando un código manual:',
-                    style: TextStyle(color: Colors.grey, fontSize: 13),
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    dropdownColor: const Color(0xFF1E201E),
-                    value: selectedBarcode,
-                    decoration: const InputDecoration(
-                      labelText: 'Producto de prueba',
-                      labelStyle: TextStyle(color: Colors.grey),
-                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2E302E))),
-                    ),
-                    style: const TextStyle(color: Colors.white),
-                    items: barcodes.map((item) {
-                      return DropdownMenuItem<String>(
-                        value: item['code'],
-                        child: Text(item['label']!, style: const TextStyle(fontSize: 13)),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setStateDialog(() {
-                          selectedBarcode = val;
-                          manualController.clear();
-                        });
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('O ingresa código manual:', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  TextField(
-                    controller: manualController,
-                    decoration: const InputDecoration(
-                      hintText: 'Ej. 7501234567890',
-                      hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
-                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2E302E))),
-                    ),
-                    style: const TextStyle(color: Colors.white),
-                    keyboardType: TextInputType.number,
-                    onChanged: (val) {
-                      if (val.isNotEmpty) {
-                        selectedBarcode = val;
-                      }
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
-                ),
-                ElevatedButton(
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  key: const Key('scan_with_camera_btn'),
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2ED573), foregroundColor: Colors.black),
                   onPressed: () async {
-                    Navigator.pop(ctx);
-                    _searchAndShowBarcodeResult(context, selectedBarcode, mealType);
+                    final code = await _openCameraScanner(context);
+                    if (code != null && code.isNotEmpty && context.mounted) {
+                      Navigator.pop(ctx);
+                      _searchAndShowBarcodeResult(context, code, mealType);
+                    }
                   },
-                  child: const Text('Escanear / Buscar', style: TextStyle(fontWeight: FontWeight.bold)),
+                  icon: const Icon(Icons.camera_alt_rounded, size: 18),
+                  label: const Text('Escanear con cámara', style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
-              ],
-            );
-          },
+              ),
+              const SizedBox(height: 16),
+              const Text('O ingresa el código manualmente:', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              TextField(
+                key: const Key('manual_barcode_field'),
+                controller: manualController,
+                decoration: const InputDecoration(
+                  hintText: 'Ej. 7501234567890',
+                  hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2E302E))),
+                ),
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              key: const Key('manual_barcode_search_btn'),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2ED573), foregroundColor: Colors.black),
+              onPressed: () {
+                final code = manualController.text.trim();
+                if (code.isEmpty) return;
+                Navigator.pop(ctx);
+                _searchAndShowBarcodeResult(context, code, mealType);
+              },
+              child: const Text('Buscar', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
         );
       },
+    );
+  }
+
+  /// Abre una pantalla con [MobileScanner] real. Devuelve el primer código
+  /// detectado, o `null` si el usuario cancela / no hay cámara disponible.
+  Future<String?> _openCameraScanner(BuildContext context) async {
+    return Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const _BarcodeScannerPage(),
+      ),
     );
   }
 
@@ -957,6 +948,78 @@ class _DiaryScreenState extends State<DiaryScreen> {
         const SizedBox(height: 4),
         Text(value, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
       ],
+    );
+  }
+}
+
+/// Pantalla de escaneo con cámara real ([MobileScanner]). Al detectar el
+/// primer código de barras hace `pop` devolviendo su `rawValue`. Si la cámara
+/// no está disponible o el permiso fue denegado, muestra un mensaje amable
+/// invitando a usar la entrada manual (mobile_scanner lanza via onDetectError).
+class _BarcodeScannerPage extends StatefulWidget {
+  const _BarcodeScannerPage();
+
+  @override
+  State<_BarcodeScannerPage> createState() => _BarcodeScannerPageState();
+}
+
+class _BarcodeScannerPageState extends State<_BarcodeScannerPage> {
+  final MobileScannerController _controller = MobileScannerController();
+  bool _handled = false;
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_handled) return;
+    final code = capture.barcodes.isNotEmpty ? capture.barcodes.first.rawValue : null;
+    if (code == null || code.isEmpty) return;
+    _handled = true;
+    Navigator.of(context).pop(code);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1E201E),
+        title: const Text('Escanear con cámara', style: TextStyle(color: Colors.white)),
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: MobileScanner(
+        controller: _controller,
+        onDetect: _onDetect,
+        // Errores de decodificación por frame: se ignoran (no rompen la UI).
+        onDetectError: (error, stack) {},
+        // Cámara no disponible / permiso denegado: mensaje amable en vez de crash.
+        errorBuilder: (context, error) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.no_photography_rounded, color: Colors.grey, size: 48),
+                const SizedBox(height: 16),
+                const Text(
+                  'No se pudo acceder a la cámara.\nUsa la entrada manual de código.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey, fontSize: 14),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2ED573), foregroundColor: Colors.black),
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Volver'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

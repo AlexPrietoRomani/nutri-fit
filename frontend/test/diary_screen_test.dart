@@ -140,4 +140,56 @@ void main() {
       expect(find.text('En línea con el plan'), findsNothing);
     });
   });
+
+  group('Diálogo de escaneo de código (T16.4.1)', () {
+    testWidgets('ofrece AMBAS vías: botón cámara + campo manual', (tester) async {
+      final provider = NutritionProvider();
+      await tester.pumpWidget(
+        ChangeNotifierProvider<NutritionProvider>.value(
+          value: provider,
+          child: const MaterialApp(home: DiaryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // El botón "Escanear" está en la primera sección de comida (Desayuno).
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Escanear').first);
+      await tester.pumpAndSettle();
+
+      // Vía 1: escaneo con cámara real (nuevo). Vía 2: entrada manual (conservada).
+      expect(find.byKey(const Key('scan_with_camera_btn')), findsOneWidget);
+      expect(find.text('Escanear con cámara'), findsOneWidget);
+      expect(find.byKey(const Key('manual_barcode_field')), findsOneWidget);
+      expect(find.byKey(const Key('manual_barcode_search_btn')), findsOneWidget);
+
+      // El dropdown de códigos mock fue eliminado.
+      expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+    });
+
+    testWidgets('la entrada manual dispara la búsqueda del código tecleado', (tester) async {
+      final provider = NutritionProvider();
+      await tester.pumpWidget(
+        ChangeNotifierProvider<NutritionProvider>.value(
+          value: provider,
+          child: const MaterialApp(home: DiaryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Escanear').first);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('manual_barcode_field')), '7501234567890');
+      await tester.tap(find.byKey(const Key('manual_barcode_search_btn')));
+      // Deja que la transición de pop del diálogo termine (no pumpAndSettle:
+      // el loading de _searchAndShowBarcodeResult nunca se estabiliza).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // El diálogo de escaneo se cerró y arrancó el flujo existente
+      // (_searchAndShowBarcodeResult muestra un CircularProgressIndicator).
+      expect(find.byKey(const Key('manual_barcode_field')), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsWidgets);
+    });
+  });
 }

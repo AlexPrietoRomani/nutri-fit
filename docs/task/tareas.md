@@ -1068,15 +1068,15 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** con un plan default mockeado y logs reales variados (sin registro, exacto, de más, de menos), el delta calculado es correcto en cada caso. Verificado: 5 casos en `diary_screen_test.dart`, suite completa verde.
 - **🎭 Tests de Simulación de Usuario:** con un plan de comida marcado como predeterminado, abrir el Diario de hoy → ver lo planificado junto a lo real por cada comida.
 
-### SF16.4: Escáner de código de barras real [ ]
+### SF16.4: Escáner de código de barras real [X]
 
-#### T16.4.1: `mobile_scanner` reemplaza el diálogo mock [ ]
+#### T16.4.1: `mobile_scanner` reemplaza el diálogo mock [X]
 - **🧠 Explicación:** Hoy `_showBarcodeScannerMockDialog` (en `diary_screen.dart`) es un diálogo con códigos de prueba hardcodeados y un campo de texto manual — sin cámara real. Se añade escaneo real, conservando la entrada manual como respaldo.
 - **💡 Cómo hacerlo:** añadir `mobile_scanner` a `pubspec.yaml` (paquete activamente mantenido, cámara nativa multiplataforma incl. web); nueva pantalla/diálogo con `MobileScanner` que, al detectar un código, llama `NutritionProvider.searchBarcode(codigo)` (YA EXISTE, no lo toques) y sigue el flujo ya existente (`_searchAndShowBarcodeResult`). El diálogo actual pasa a tener dos vías: botón "Escanear con cámara" (nuevo, real) y el campo de entrada manual (conservado, ya existente) — no elimines la entrada manual, es el respaldo para cuando la cámara no esté disponible (web sin permiso, dispositivo sin cámara, etc.).
 - **Acciones:**
-  - `[ ]` A16.4.1.1: Dependencia `mobile_scanner` + pantalla/diálogo de escaneo real.
-  - `[ ]` A16.4.1.2: Al detectar un código, dispara el mismo flujo ya existente de `searchBarcode` → confirmar → `addFoodLog`.
-- **✅ Tests Unitarios:** widget test — el botón de escanear con cámara existe junto a la entrada manual (no la reemplaza); con el escáner mockeado (no se puede probar la cámara real en CI), detectar un código dispara `searchBarcode` con el valor correcto.
+  - `[X]` A16.4.1.1: Dependencia `mobile_scanner ^7.3.0` + `_BarcodeScannerPage` con `MobileScanner` real (errorBuilder amable si no hay cámara/permiso).
+  - `[X]` A16.4.1.2: Al detectar un código, dispara el mismo flujo ya existente de `searchBarcode` → confirmar → `addFoodLog`. Entrada manual conservada como respaldo.
+- **✅ Tests Unitarios:** widget test — el botón de escanear con cámara existe junto a la entrada manual (no la reemplaza); la entrada manual sigue disparando `_searchAndShowBarcodeResult`. Verificado: `diary_screen_test.dart` 8/8, `flutter build web` compila con `mobile_scanner`.
 - **🎭 Tests de Simulación de Usuario:** desde un dispositivo/navegador con cámara, escanear un código de barras real → ver el producto (OpenFoodFacts) → confirmar → aparece en el Diario.
 
 ### SF16.5: Dashboard "Plan de Hoy" [ ]
