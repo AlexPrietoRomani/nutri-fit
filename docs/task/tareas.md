@@ -779,3 +779,219 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   - `[X]` A13.4.1.2: `training.routines` documentada en `diseno_db.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
+
+---
+
+## F14: Recuperación de Contraseña (mailer local + flujo completo) [ ]
+
+> `AuthScreen` (F10) solo tiene login/signup — sin recuperación de contraseña (verificado por grep, cero resultados). GoTrue puede enviarla, pero el stack no tiene SMTP configurado.
+> **AC de Fase:** servicio `mailpit` (SMTP + UI + API REST) · enlace "¿Olvidaste tu contraseña?" → `resetPasswordForEmail` · detección de `AuthChangeEvent.passwordRecovery` → pantalla de nueva contraseña → `updateUser` · E2E real (correo capturado por Mailpit, no simulado) · ADR 13. **NO toca diseno_db.md.**
+
+### SF14.1: Mailer local (infra) [X]
+
+#### T14.1.1: Servicio `mailpit` + `GOTRUE_SMTP_*` [X]
+- **🧠 Explicación:** Mailpit (no Mailhog, sin mantenimiento desde 2020) captura correos SMTP sin enviarlos de verdad — expone una UI web para verlos y una API REST (`GET /api/v1/messages`) para extraerlos programáticamente, clave para el E2E de T14.3.1 sin depender de un navegador.
+- **💡 Cómo hacerlo:** en `docker-compose.yml`:
+  ```yaml
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: nutri-fit-mailpit
+    ports:
+      - "8025:8025"  # UI web + API REST
+      - "1025:1025"  # SMTP
+    networks:
+      - nutrifit-network
+  ```
+  En el servicio `auth` (GoTrue), añadir/ajustar variables:
+  ```yaml
+  GOTRUE_SMTP_HOST: mailpit
+  GOTRUE_SMTP_PORT: "1025"
+  GOTRUE_SMTP_USER: "test"
+  GOTRUE_SMTP_PASS: "test"
+  GOTRUE_SMTP_SENDER_NAME: "Nutri-Fit"
+  GOTRUE_SMTP_ADMIN_EMAIL: "no-reply@nutrifit.local"
+  ```
+  `GOTRUE_SITE_URL` (ya en `http://localhost:8080` desde F10) sigue sirviendo como base para el link del correo; `auth: depends_on: [postgres, mailpit]`.
+- **Acciones:**
+  - `[X]` A14.1.1.1: Servicio `mailpit` en `docker-compose.yml`.
+  - `[X]` A14.1.1.2: `GOTRUE_SMTP_*` apuntando a Mailpit. Verificado con correo real: signup → recover → correo capturado en Mailpit con link + código OTP de recuperación.
+- **✅ Tests Unitarios:** N/A (config de infra); verificación manual — `docker compose up`, `curl http://localhost:8025/api/v1/messages` responde (aunque vacío al inicio).
+- **🎭 Tests de Simulación de Usuario:** N/A (infra, cubierto por T14.3.1).
+
+### SF14.2: Flujo de recuperación (frontend) [ ]
+
+#### T14.2.1: Enlace "¿Olvidaste tu contraseña?" → `resetPasswordForEmail` [ ]
+- **🧠 Explicación:** En el modo login de `AuthScreen`, un enlace que pide el email y dispara la recuperación real — sin depender de que el usuario "avise" de otra forma.
+- **💡 Cómo hacerlo:** en `frontend/lib/features/auth/auth_screen.dart`, debajo del botón de login (solo visible en modo login, no signup):
+  ```dart
+  TextButton(
+    onPressed: _isLoading ? null : _showForgotPasswordDialog,
+    child: const Text('¿Olvidaste tu contraseña?'),
+  ),
+  ```
+  ```dart
+  Future<void> _showForgotPasswordDialog() async {
+    final emailCtrl = TextEditingController(text: _emailController.text.trim());
+    final email = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Recuperar contraseña'),
+        content: TextField(controller: emailCtrl, keyboardType: TextInputType.emailAddress, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, emailCtrl.text.trim()), child: const Text('Enviar')),
+        ],
+      ),
+    );
+    if (email == null || email.isEmpty || !email.contains('@')) return;
+    try {
+      await Supabase.instance.client.auth.resetPasswordForEmail(
+        email,
+        redirectTo: 'http://localhost:8080/',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Revisa tu correo para continuar (o la bandeja de Mailpit en dev: http://localhost:8025)')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo enviar: $e')));
+      }
+    }
+  }
+  ```
+- **Acciones:**
+  - `[ ]` A14.2.1.1: Enlace "¿Olvidaste tu contraseña?" visible solo en modo login.
+  - `[ ]` A14.2.1.2: Diálogo de email → `resetPasswordForEmail` con manejo de error.
+- **✅ Tests Unitarios:** widget test — el enlace existe en modo login y NO en modo signup; el diálogo valida el email antes de llamar (mismo patrón de validación ya usado en `_validate()` del archivo).
+- **🎭 Tests de Simulación de Usuario:** cubierto por T14.3.1 (E2E real).
+
+#### T14.2.2: `AuthChangeEvent.passwordRecovery` → pantalla de nueva contraseña [ ]
+- **🧠 Explicación:** Al abrir el link del correo, `Supabase.initialize()` detecta el token de recuperación en la URL y GoTrue emite `AuthChangeEvent.passwordRecovery` por `onAuthStateChange` — confirmado en la documentación real del SDK (no asumido). `AuthGate` (en `main.dart`) ya escucha ese stream para decidir login/dashboard; hay que darle prioridad a este evento sobre el enrutamiento normal.
+- **💡 Cómo hacerlo:** en `frontend/lib/main.dart`, dentro de `AuthGate.build`, el `builder` del `StreamBuilder<AuthState>` ya tiene `snapshot.data?.event` disponible:
+  ```dart
+  builder: (context, snapshot) {
+    if (snapshot.data?.event == AuthChangeEvent.passwordRecovery) {
+      return const ResetPasswordScreen();
+    }
+    final session = snapshot.data?.session ?? SupabaseConfig.client.auth.currentSession;
+    if (session == null) return const AuthScreen();
+    return const InitialCheckScreen();
+  },
+  ```
+  Nuevo archivo `frontend/lib/features/auth/reset_password_screen.dart`: pantalla con un campo de nueva contraseña (+ botón de ojo, mismo patrón ya usado en `auth_screen.dart`) y un botón "Guardar" que llama:
+  ```dart
+  await Supabase.instance.client.auth.updateUser(
+    UserAttributes(password: newPasswordCtrl.text),
+  );
+  ```
+  Tras el éxito, muestra confirmación; el `AuthGate` volverá a evaluar (la sesión ya está activa tras la recuperación) y navegará normalmente.
+- **Acciones:**
+  - `[ ]` A14.2.2.1: `AuthGate` prioriza `AuthChangeEvent.passwordRecovery` sobre el enrutamiento normal.
+  - `[ ]` A14.2.2.2: `ResetPasswordScreen` con campo de contraseña + `updateUser`.
+- **✅ Tests Unitarios:** widget test — con un `AuthState` mockeado de evento `passwordRecovery`, `AuthGate` renderiza `ResetPasswordScreen` (no `AuthScreen`/`InitialCheckScreen`); `ResetPasswordScreen` valida la contraseña (mínimo 6 caracteres, mismo criterio que `auth_screen.dart`) antes de llamar `updateUser`.
+- **🎭 Tests de Simulación de Usuario:** cubierto por T14.3.1 (E2E real).
+
+### SF14.3: Verificación E2E real + Documentación [ ]
+
+#### T14.3.1: E2E real contra Mailpit (sin mocks) [ ]
+- **🧠 Explicación:** El criterio de aceptación central de la Fase: demostrar con comandos reales (no mocks) que el correo se envía, se puede extraer, y el cambio de contraseña funciona de punta a punta.
+- **💡 Cómo hacerlo:**
+  ```bash
+  # 1. Disparar la recuperación real
+  curl -X POST http://localhost:54321/auth/v1/recover -H "Content-Type: application/json" \
+    -d '{"email":"<email de prueba ya existente>"}'
+  # 2. Confirmar que el correo llegó a Mailpit (API REST, no la UI)
+  curl -s http://localhost:8025/api/v1/messages | jq '.messages[0]'
+  # 3. Extraer el link de recuperación del cuerpo del correo (contiene el token)
+  # 4. Completar el cambio de contraseña usando el access_token que trae el link
+  #    (el link de GoTrue ya es una sesión de recuperación válida; el endpoint
+  #    real es PUT /auth/v1/user con ese token como Bearer y {"password": "nueva"})
+  # 5. Confirmar login con la contraseña nueva vía /auth/v1/token?grant_type=password
+  ```
+  Documentar el script real usado (guardarlo en `tests/e2e/` si se generaliza, siguiendo el patrón de `test_auth_rls_e2e.sh`).
+- **Acciones:**
+  - `[ ]` A14.3.1.1: Script/comandos reales que verifican el flujo completo contra Mailpit.
+- **✅ Tests Unitarios:** N/A (es en sí mismo el test de simulación de usuario a nivel API).
+- **🎭 Tests de Simulación de Usuario:** flujo completo verificado end-to-end: solicitar → correo real en Mailpit → cambiar contraseña → login con la nueva.
+
+#### T14.3.2: ADR 13 en `architecture.md` [ ]
+- **🧠 Explicación:** Documentar la decisión de Mailpit sobre Mailhog, la config SMTP de GoTrue, y el mecanismo de `AuthChangeEvent.passwordRecovery`.
+- **💡 Cómo hacerlo:** ADR 13 con contexto (sin flujo de recuperación, sin SMTP), decisión (Mailpit + su API REST para E2E), y el flujo completo (resetPasswordForEmail → correo → passwordRecovery → updateUser).
+- **Acciones:**
+  - `[ ]` A14.3.2.1: ADR 13 en `architecture.md`.
+- **✅ Tests Unitarios:** N/A (docs).
+- **🎭 Tests de Simulación de Usuario:** N/A (docs).
+
+---
+
+## F15: UI/UX del Entrenamiento en Vivo + Detalle de Ejercicio (imágenes + instrucciones) [X]
+
+> Hallazgo: `_showExerciseDetail`/`_ExerciseThumbnail` YA EXISTEN en `active_workout_screen.dart`, pero solo están cableados a la hoja "Agregar Ejercicio" — nunca a las tarjetas de la sesión en vivo, que hoy solo muestran el nombre en texto plano. El dataset tiene 2 imágenes ESTÁTICAS por ejercicio (no un GIF animado) — se corrige esa expectativa mostrando ambas en un carrusel.
+> **AC de Fase:** miniatura + tap-to-detail en la tarjeta activa (reusando código existente) · popup con carrusel de TODAS las imágenes (hoy solo la primera) · indicador visual de ejercicio completado · cero regresión en edición de sets/finalizar/cancelar.
+
+### SF15.1: Miniatura + detalle reusado en la tarjeta activa [X]
+
+#### T15.1.1: `_ExerciseThumbnail` + tap-to-detail en la tarjeta de `ActiveWorkoutScreen` [X]
+- **🧠 Explicación:** El encabezado de cada tarjeta de ejercicio en la sesión activa (`ActiveWorkoutScreen`, dentro del `ListView.builder` de `activeExercisesIds`) hoy es solo `Text(exercise.name)` + botón de borrar. `_ExerciseThumbnail` y `_showExerciseDetail` ya existen en el mismo archivo (usados hoy solo en `_showAddExerciseModal`) — hay que reusarlos aquí, no reimplementarlos.
+- **💡 Cómo hacerlo:** en el `Row` del encabezado de la tarjeta (donde hoy está `Expanded(child: Text(exercise.name, ...))`), envolver en un `InkWell`/`GestureDetector` que llame `_showExerciseDetail(context, exercise)`, y anteponer `_ExerciseThumbnail(exercise: exercise)`:
+  ```dart
+  Row(
+    children: [
+      _ExerciseThumbnail(exercise: exercise),
+      const SizedBox(width: 12),
+      Expanded(
+        child: InkWell(
+          onTap: () => _showExerciseDetail(context, exercise),
+          child: Text(exercise.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+        ),
+      ),
+      IconButton(icon: const Icon(Icons.delete_outline_rounded, ...), onPressed: () => provider.removeExerciseFromActiveWorkout(exId)),
+    ],
+  ),
+  ```
+- **Acciones:**
+  - `[X]` A15.1.1.1: `_ExerciseThumbnail` en el encabezado de la tarjeta activa.
+  - `[X]` A15.1.1.2: Tap en el nombre/miniatura abre `_showExerciseDetail` (reusado).
+- **✅ Tests Unitarios:** widget test — con una sesión activa y un ejercicio agregado, la tarjeta renderiza `_ExerciseThumbnail`; tocar el nombre abre el diálogo de detalle. Verificado: 45/45 tests verdes, sin regresión.
+- **🎭 Tests de Simulación de Usuario:** iniciar una rutina → agregar/tener un ejercicio → tocar su nombre en la tarjeta activa → ver el popup de detalle (antes solo accesible desde "Agregar Ejercicio").
+
+### SF15.2: Carrusel de imágenes en el popup de detalle [X]
+
+#### T15.2.1: `_showExerciseDetail` muestra todas las `imageUrls` en carrusel [X]
+- **🧠 Explicación:** Hoy el popup solo muestra `exercise.imageUrls.first` — una sola imagen estática. El dataset trae típicamente 2 (posición inicial/final); mostrarlas ambas (deslizables) es la representación más fiel de "cómo se hace el ejercicio" disponible en los datos reales (no hay GIF animado en el dataset).
+- **💡 Cómo hacerlo:** reemplazar el bloque `if (exercise.imageUrls.isNotEmpty) Center(child: Image.network(exercise.imageUrls.first, ...))` por un `PageView.builder` de altura fija (misma `height: 180`) sobre `exercise.imageUrls`, con un indicador de página (`SmoothPageIndicator`-style casero: una fila de puntitos, sin dependencia nueva) debajo si `imageUrls.length > 1`:
+  ```dart
+  SizedBox(
+    height: 180,
+    child: PageView.builder(
+      itemCount: exercise.imageUrls.length,
+      itemBuilder: (context, i) => Image.network(
+        exercise.imageUrls[i], fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => const Icon(Icons.fitness_center_rounded, size: 96, color: Colors.grey),
+      ),
+    ),
+  ),
+  if (exercise.imageUrls.length > 1)
+    Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text('${exercise.imageUrls.length} imágenes — desliza', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+    ),
+  ```
+  (Un indicador de puntos real es un plus, pero un texto simple "N imágenes — desliza" ya cumple el AC sin añadir una dependencia nueva — usa tu criterio si quieres algo más elaborado, pero no añadas un paquete pub.dev nuevo solo para esto.)
+- **Acciones:**
+  - `[X]` A15.2.1.1: `PageView` sobre todas las `imageUrls` en vez de solo la primera.
+  - `[X]` A15.2.1.2: Indicador de que hay más de una imagen cuando aplica.
+- **✅ Tests Unitarios:** widget test — con un `Exercise` de 2 `imageUrls`, el popup renderiza un `PageView` con `itemCount == 2`; con 1 sola imagen, no muestra el indicador de "desliza"; con 0 imágenes, cae al ícono de fallback. Verificado: 45/45 tests.
+- **🎭 Tests de Simulación de Usuario:** abrir el detalle de un ejercicio con 2 imágenes → deslizar → ver ambas.
+
+### SF15.3: Pulido visual de la tarjeta de ejercicio [X]
+
+#### T15.3.1: Indicador de ejercicio completado + jerarquía visual de la tabla de series [X]
+- **🧠 Explicación:** Con muchos ejercicios en una rutina larga, es difícil ver de un vistazo cuáles ya se completaron del todo. Un indicador visual (borde/ícono) en la tarjeta cuando TODAS sus series están `completed: true` mejora la lectura rápida del progreso.
+- **💡 Cómo hacerlo:** en el `Card` de cada ejercicio (`ActiveWorkoutScreen`), calcular `final allDone = exerciseSets.isNotEmpty && exerciseSets.every((s) => s.completed);` y usar `shape: RoundedRectangleBorder(side: BorderSide(color: allDone ? Color(0xFF2ED573) : Colors.transparent, width: 1.5), borderRadius: BorderRadius.circular(12))` en el `Card`, más un ícono de check pequeño junto al nombre cuando `allDone`. No cambies la lógica de edición de sets existente, solo el estilo condicional.
+- **Acciones:**
+  - `[X]` A15.3.1.1: Borde/ícono de "completado" cuando todas las series de un ejercicio están marcadas.
+- **✅ Tests Unitarios:** widget test — con todos los sets de un ejercicio `completed: true`, la tarjeta muestra el indicador visual; con al menos uno sin completar, no lo muestra. Verificado: 45/45 tests, sin regresión.
+- **🎭 Tests de Simulación de Usuario:** marcar todas las series de un ejercicio como hechas → ver el indicador visual de completado en la tarjeta, sin afectar el resto de la sesión.

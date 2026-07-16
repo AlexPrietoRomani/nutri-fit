@@ -195,3 +195,46 @@ Este documento detalla la planificación del desarrollo de Nutri-Fit, incluyendo
   - T13.3.1: Listar rutinas guardadas junto a las predefinidas; iniciar una precarga sets/reps/rpe objetivo.
 - **F13.SF4: Documentación**
   - T13.4.1: ADR 12 en `architecture.md` + `training.routines` en `diseno_db.md`.
+
+### Fase 14: Recuperación de Contraseña (mailer local + flujo completo)
+- **Macro-objetivo:** `AuthScreen` (F10) solo tiene login/signup, sin ningún flujo de recuperación (verificado por grep, cero resultados). El flujo real de GoTrue (`/auth/v1/recover`) envía un correo con un link de recuperación, pero el stack de dev no tiene ningún servidor SMTP — sin él, GoTrue fallaría al intentar enviar el correo. Esta Fase añade un mailer de pruebas local y el flujo completo de recuperación.
+- **Entregable global:** un enlace "¿Olvidaste tu contraseña?" en el login que envía un correo real (capturado por un mailer de pruebas visible en una UI web), y una pantalla que completa el cambio de contraseña al abrir el link del correo.
+- **Decisión de infraestructura:** **Mailpit** (no Mailhog, que está prácticamente sin mantenimiento desde 2020) como servidor SMTP de pruebas — expone SMTP en `:1025` y una UI web en `:8025` para ver los correos capturados, más una **API REST** (`GET /api/v1/messages`) que permite extraer el link de recuperación programáticamente para el E2E de esta Fase, sin depender de interacción manual con la UI.
+- **Mecanismo de recuperación en Flutter (confirmado vía Context7, no asumido):** `auth.resetPasswordForEmail(email, redirectTo: ...)` dispara el correo; al abrir el link, `Supabase.initialize()` detecta el token de recuperación en la URL y GoTrue establece una sesión temporal, emitiendo `AuthChangeEvent.passwordRecovery` por `onAuthStateChange` — la app debe escuchar ese evento (con prioridad sobre el enrutamiento normal del `AuthGate`) y mostrar una pantalla de "nueva contraseña" que llama `auth.updateUser(UserAttributes(password: nueva))` (método y clase confirmados en la documentación real del SDK).
+- **Criterios de Aceptación (AC):**
+  - **AC1 (infra):** servicio `mailpit` en `docker-compose.yml` (SMTP `:1025`, UI web `:8025`); `GOTRUE_SMTP_*` configurado para apuntar a él; `GOTRUE_SITE_URL`/redirect ya apunta a `http://localhost:8080` (F10).
+  - **AC2 (login):** enlace "¿Olvidaste tu contraseña?" en `AuthScreen` (modo login) → diálogo de email → `resetPasswordForEmail` → mensaje "revisa tu correo".
+  - **AC3 (recuperación):** al abrir el link real (capturado por Mailpit), la app detecta `AuthChangeEvent.passwordRecovery` y muestra una pantalla de nueva contraseña → `updateUser` → confirmación → puede iniciar sesión con la contraseña nueva.
+  - **AC4 (E2E real, sin mocks):** solicitar recuperación para un email de prueba real → confirmar que el correo aparece en la API de Mailpit (no simulado) → extraer el link real → completar el cambio → login con la contraseña nueva, todo verificado con comandos reales contra el stack.
+  - **AC5 (docs):** ADR 13 en `architecture.md` (mailer local, decisión Mailpit sobre Mailhog, mecanismo de `passwordRecovery`). No toca `diseno_db.md` (`auth.users` ya existe, sin tablas nuevas).
+- **Estrategia de Pruebas (nivel Fase):**
+  - **Tests Unitarios:** frontend — el enlace/diálogo de recuperación arma la llamada correcta a `resetPasswordForEmail`; la pantalla de nueva contraseña llama `updateUser` con la contraseña ingresada y maneja errores sin explotar.
+  - **Tests de Simulación de Usuario:** flujo E2E real descrito en AC4, de punta a punta contra el stack Docker vivo (Mailpit + GoTrue + gateway), sin mocks de correo.
+- **F14.SF1: Mailer local (infra)**
+  - T14.1.1: Servicio `mailpit` en `docker-compose.yml` + configuración `GOTRUE_SMTP_*`.
+- **F14.SF2: Flujo de recuperación (frontend)**
+  - T14.2.1: Enlace "¿Olvidaste tu contraseña?" + diálogo de email → `resetPasswordForEmail`.
+  - T14.2.2: Detección de `AuthChangeEvent.passwordRecovery` + pantalla de nueva contraseña → `updateUser`.
+- **F14.SF3: Verificación E2E real + Documentación**
+  - T14.3.1: E2E real contra Mailpit (extraer el link del correo vía su API, completar el flujo, confirmar login con la contraseña nueva).
+  - T14.3.2: ADR 13 en `architecture.md`.
+
+### Fase 15: UI/UX del Entrenamiento en Vivo + Detalle de Ejercicio (imágenes + instrucciones)
+- **Macro-objetivo:** Durante una rutina en curso (`ActiveWorkoutScreen`), las tarjetas de ejercicio solo muestran el nombre en texto plano — sin miniatura ni forma de ver cómo se ejecuta el ejercicio. **Hallazgo:** el popup de detalle (`_showExerciseDetail`) y la miniatura (`_ExerciseThumbnail`) YA EXISTEN en `active_workout_screen.dart`, pero solo están cableados a la hoja de "Agregar Ejercicio" — nunca a las tarjetas de la sesión en vivo. Esta Fase reutiliza ese código ya construido en el lugar donde realmente hace falta, y pule la experiencia visual del tracker en vivo.
+- **Aclaración importante (no prometer algo que no existe):** el dataset `free-exercise-db` (F7) tiene **2 imágenes estáticas** por ejercicio (posición inicial/final en `image_urls[0]`/`[1]`), **no un GIF animado** — el popup de detalle ya solo muestra `imageUrls.first` (una sola imagen); esta Fase lo mejora a un carrusel/galería con AMBAS imágenes, que es la representación más fiel de "cómo se hace" disponible en los datos reales.
+- **Entregable global:** en la sesión de entrenamiento en vivo, cada tarjeta de ejercicio muestra su miniatura y el nombre es tocable, abriendo el mismo popup de detalle (ahora con las 2 imágenes en carrusel) ya usado en "Agregar Ejercicio"; pulido visual de la tarjeta (indicador claro de ejercicio con todas las series completadas, mejor jerarquía visual de la tabla de series).
+- **Criterios de Aceptación (AC):**
+  - **AC1:** la tarjeta de ejercicio en `ActiveWorkoutScreen` muestra `_ExerciseThumbnail` (ya existente) junto al nombre.
+  - **AC2:** tocar el nombre/miniatura abre `_showExerciseDetail` (ya existente, reusado, no reimplementado) — mismo popup que en "Agregar Ejercicio", ahora accesible también durante la sesión activa.
+  - **AC3:** el popup de detalle muestra un carrusel/galería con TODAS las imágenes de `exercise.imageUrls` (hoy solo muestra la primera), con indicador de página si hay más de una.
+  - **AC4:** pulido visual: la tarjeta de ejercicio indica claramente cuando todas sus series están completadas (p. ej. borde/ícono de check), y la tabla de series mantiene legibilidad (sin regresión de la edición inline de peso/reps/rpe ya existente).
+  - **AC5:** cero regresión en el flujo de edición de sets/finalizar/cancelar entrenamiento ya existente.
+- **Estrategia de Pruebas (nivel Fase):**
+  - **Tests Unitarios:** widget test — la tarjeta de ejercicio en la sesión activa renderiza `_ExerciseThumbnail`; tocar el nombre invoca el mismo diálogo de detalle (verificable buscando el título del ejercicio duplicado en el árbol de widgets tras el tap, o refactorizando `_showExerciseDetail` a un método público/testeable si hace falta); el carrusel de imágenes muestra tantas páginas como `imageUrls.length`.
+  - **Tests de Simulación de Usuario:** iniciar una rutina → tocar un ejercicio en la tarjeta activa → ver el popup con las 2 imágenes (deslizable) + instrucciones reales del catálogo → cerrar → seguir registrando series sin problema.
+- **F15.SF1: Miniatura + detalle reusado en la tarjeta activa**
+  - T15.1.1: `_ExerciseThumbnail` + tap-to-detail en la tarjeta de `ActiveWorkoutScreen` (reusa `_showExerciseDetail` existente).
+- **F15.SF2: Carrusel de imágenes en el popup de detalle**
+  - T15.2.1: `_showExerciseDetail` muestra todas las `imageUrls` en un carrusel deslizable con indicador de página, no solo la primera.
+- **F15.SF3: Pulido visual de la tarjeta de ejercicio**
+  - T15.3.1: Indicador visual de ejercicio 100% completado + revisión de jerarquía visual de la tabla de series.

@@ -336,9 +336,18 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                             
                             // Sets correspondientes a este ejercicio
                             final exerciseSets = provider.activeSets.where((s) => s.exerciseId == exId).toList();
+                            final allDone = exerciseSets.isNotEmpty && exerciseSets.every((s) => s.completed);
 
                             return Card(
                               margin: const EdgeInsets.only(bottom: 16.0),
+                              shape: RoundedRectangleBorder(
+                                // Mismo radio que CardThemeData en main.dart (16); solo añadimos el borde.
+                                borderRadius: BorderRadius.circular(16),
+                                side: BorderSide(
+                                  color: allDone ? const Color(0xFF2ED573) : Colors.transparent,
+                                  width: 1.5,
+                                ),
+                              ),
                               child: Padding(
                                 padding: const EdgeInsets.all(12.0),
                                 child: Column(
@@ -346,15 +355,29 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                                   children: [
                                     // Encabezado del Ejercicio
                                     Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
+                                        _ExerciseThumbnail(exercise: exercise),
+                                        const SizedBox(width: 12),
                                         Expanded(
-                                          child: Text(
-                                            exercise.name,
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
+                                          child: InkWell(
+                                            onTap: () => _showExerciseDetail(context, exercise),
+                                            child: Row(
+                                              children: [
+                                                Flexible(
+                                                  child: Text(
+                                                    exercise.name,
+                                                    style: const TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Colors.white,
+                                                    ),
+                                                  ),
+                                                ),
+                                                if (allDone) ...[
+                                                  const SizedBox(width: 6),
+                                                  const Icon(Icons.check_circle_rounded, color: Color(0xFF2ED573), size: 18),
+                                                ],
+                                              ],
                                             ),
                                           ),
                                         ),
@@ -566,18 +589,31 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (exercise.imageUrls.isNotEmpty)
-                  Center(
-                    child: Image.network(
-                      exercise.imageUrls.first,
-                      height: 180,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) =>
-                          const Icon(Icons.fitness_center_rounded, size: 96, color: Colors.grey),
+                  SizedBox(
+                    height: 180,
+                    child: PageView.builder(
+                      itemCount: exercise.imageUrls.length,
+                      itemBuilder: (context, i) => Center(
+                        child: Image.network(
+                          exercise.imageUrls[i],
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) =>
+                              const Icon(Icons.fitness_center_rounded, size: 96, color: Colors.grey),
+                        ),
+                      ),
                     ),
                   )
                 else
                   const Center(
                     child: Icon(Icons.fitness_center_rounded, size: 96, color: Colors.grey),
+                  ),
+                if (exercise.imageUrls.length > 1)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      '${exercise.imageUrls.length} imágenes — desliza para ver más',
+                      style: const TextStyle(color: Colors.grey, fontSize: 11),
+                    ),
                   ),
                 const SizedBox(height: 12),
                 Text(
