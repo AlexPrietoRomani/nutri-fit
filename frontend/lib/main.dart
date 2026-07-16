@@ -8,6 +8,9 @@ import 'features/nutrition/diary_screen.dart';
 import 'features/training/training_provider.dart';
 import 'features/training/workout_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
+import 'features/ai/ai_provider.dart';
+import 'features/ai/chat_screen.dart';
+import 'features/ai/ai_settings_screen.dart';
 
 void main() async {
   // Asegurar que los bindings de Flutter estén inicializados antes de servicios asíncronos.
@@ -26,6 +29,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => OnboardingProvider()),
         ChangeNotifierProvider(create: (_) => NutritionProvider()),
         ChangeNotifierProvider(create: (_) => TrainingProvider()),
+        ChangeNotifierProvider(create: (_) => AiProvider()),
       ],
       child: const NutriFitApp(),
     ),
@@ -69,6 +73,8 @@ class NutriFitApp extends StatelessWidget {
         '/dashboard': (context) => const DashboardScreen(),
         '/diary': (context) => const DiaryScreen(),
         '/training': (context) => const WorkoutScreen(),
+        '/chat': (context) => const ChatScreen(),
+        '/ai-settings': (context) => const AiSettingsScreen(),
       },
     );
   }
