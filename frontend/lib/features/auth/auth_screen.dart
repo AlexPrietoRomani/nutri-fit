@@ -84,6 +84,46 @@ class _AuthScreenState extends State<AuthScreen> {
     });
   }
 
+  Future<void> _showForgotPasswordDialog() async {
+    final emailCtrl = TextEditingController(text: _emailController.text.trim());
+    final email = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Recuperar contraseña'),
+        content: TextField(
+          key: const Key('forgot_password_email_field'),
+          controller: emailCtrl,
+          keyboardType: TextInputType.emailAddress,
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          FilledButton(
+            key: const Key('forgot_password_send_button'),
+            onPressed: () => Navigator.pop(ctx, emailCtrl.text.trim()),
+            child: const Text('Enviar'),
+          ),
+        ],
+      ),
+    );
+    if (email == null || email.isEmpty || !email.contains('@')) return;
+    try {
+      await Supabase.instance.client.auth.resetPasswordForEmail(
+        email,
+        redirectTo: 'http://localhost:8080/',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Revisa tu correo para continuar')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo enviar: $e')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -224,6 +264,12 @@ class _AuthScreenState extends State<AuthScreen> {
                           style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
                         ),
                       ),
+                      if (!_isSignUp)
+                        TextButton(
+                          key: const Key('forgot_password_button'),
+                          onPressed: _isLoading ? null : _showForgotPasswordDialog,
+                          child: const Text('¿Olvidaste tu contraseña?'),
+                        ),
                     ],
                   ),
                 ),
