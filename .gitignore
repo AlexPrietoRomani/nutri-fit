@@ -99,6 +99,9 @@ release/
 .promptfoo/
 
 # Agent Documentation & Planning
+# Planning & task board (gestionados por project-suite, NO versionar)
+docs/plan/
+docs/task/
 CLAUDE.md
 AGENTS.md
 PLAN.md
@@ -160,3 +163,9 @@ models/
 
 # --- References ---
 reference/
+
+# --- E2E artifacts (screenshots regenerables) ---
+e2e/shots/
+
+# --- project-suite tooling ---
+.project-suite/

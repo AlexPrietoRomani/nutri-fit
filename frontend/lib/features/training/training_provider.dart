@@ -1,37 +1,68 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase_config.dart';
+import '../../core/constants.dart';
 
-/// Modelo de datos para un Ejercicio.
+/// Modelo de datos para un Ejercicio del catálogo (free-exercise-db).
 class Exercise {
   final int id;
+  final String? externalId;
   final String name;
   final String category;
+  final String? bodyPart;
+  final String? targetMuscle;
+  final List<String> secondaryMuscles;
   final String? equipment;
+  final String? force;
+  final String? level;
+  final String? mechanic;
+  final List<String> instructionsEn;
+  final List<String> imageUrls;
 
   Exercise({
     required this.id,
+    this.externalId,
     required this.name,
     required this.category,
+    this.bodyPart,
+    this.targetMuscle,
+    this.secondaryMuscles = const [],
     this.equipment,
+    this.force,
+    this.level,
+    this.mechanic,
+    this.instructionsEn = const [],
+    this.imageUrls = const [],
   });
 
-  factory Exercise.fromJson(Map<String, dynamic> json) {
-    return Exercise(
-      id: json['id'] as int,
-      name: json['name'] as String,
-      category: json['category'] as String,
-      equipment: json['equipment'] as String?,
-    );
+  /// Convierte un valor devuelto por PostgREST (`TEXT[]`) en `List<String>`.
+  static List<String> _stringList(dynamic value) {
+    if (value == null) return const [];
+    return (value as List).map((e) => e.toString()).toList();
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'name': name,
-      'category': category,
-      'equipment': equipment,
-    };
+  factory Exercise.fromJson(Map<String, dynamic> json) {
+    // `instructions` es JSONB: {"en": ["paso 1", ...]}
+    final dynamic instr = json['instructions'];
+    final List<String> steps = (instr is Map && instr['en'] != null)
+        ? (instr['en'] as List).map((e) => e.toString()).toList()
+        : const [];
+
+    return Exercise(
+      id: json['id'] as int,
+      externalId: json['external_id'] as String?,
+      name: json['name'] as String,
+      category: json['category'] as String,
+      bodyPart: json['body_part'] as String?,
+      targetMuscle: json['target_muscle'] as String?,
+      secondaryMuscles: _stringList(json['secondary_muscles']),
+      equipment: json['equipment'] as String?,
+      force: json['force'] as String?,
+      level: json['level'] as String?,
+      mechanic: json['mechanic'] as String?,
+      instructionsEn: steps,
+      imageUrls: _stringList(json['image_urls']),
+    );
   }
 }
 
@@ -160,44 +191,14 @@ class TrainingProvider extends ChangeNotifier {
           .select();
 
       final List<dynamic> data = response as List<dynamic>;
+      // El catálogo se puebla en el init de Postgres desde free-exercise-db
+      // (docker/postgres/zz_exercises_seed.sql); aquí solo se lee.
       _exercises = data.map((json) => Exercise.fromJson(json as Map<String, dynamic>)).toList();
-      
-      // Si la tabla de ejercicios está vacía, precargamos algunos ejercicios por defecto para testing/demo.
-      if (_exercises.isEmpty) {
-        await _seedInitialExercises();
-        final reloadResponse = await client
-            .schema('training')
-            .from('exercises')
-            .select();
-        final List<dynamic> reloadData = reloadResponse as List<dynamic>;
-        _exercises = reloadData.map((json) => Exercise.fromJson(json as Map<String, dynamic>)).toList();
-      }
     } catch (e) {
       _errorMessage = e.toString();
     } finally {
       _isLoading = false;
       notifyListeners();
-    }
-  }
-
-  /// Precargar ejercicios base si la tabla está vacía.
-  Future<void> _seedInitialExercises() async {
-    final client = SupabaseConfig.client;
-    final defaultExercises = [
-      {'id': 1, 'name': 'Sentadilla libre', 'category': 'Pierna', 'equipment': 'Barra'},
-      {'id': 2, 'name': 'Press de Banca', 'category': 'Empuje', 'equipment': 'Barra'},
-      {'id': 3, 'name': 'Peso Muerto', 'category': 'Tracción', 'equipment': 'Barra'},
-      {'id': 4, 'name': 'Dominadas', 'category': 'Tracción', 'equipment': 'Ninguno'},
-      {'id': 5, 'name': 'Flexiones de Pecho', 'category': 'Empuje', 'equipment': 'Ninguno'},
-      {'id': 6, 'name': 'Prensa de Piernas', 'category': 'Pierna', 'equipment': 'Máquina'},
-      {'id': 7, 'name': 'Curl de Bíceps', 'category': 'Tracción', 'equipment': 'Mancuerna'},
-      {'id': 8, 'name': 'Press Militar', 'category': 'Empuje', 'equipment': 'Mancuerna'},
-    ];
-
-    try {
-      await client.schema('training').from('exercises').insert(defaultExercises);
-    } catch (e) {
-      debugPrint('Error al precargar ejercicios: $e');
     }
   }
 
@@ -210,13 +211,7 @@ class TrainingProvider extends ChangeNotifier {
     try {
       final client = SupabaseConfig.client;
       // Obtener o crear userId para pruebas locales
-      String userId;
-      final currentUser = client.auth.currentUser;
-      if (currentUser != null) {
-        userId = currentUser.id;
-      } else {
-        userId = '00000000-0000-0000-0000-000000000000'; // Fallback uuid
-      }
+      final userId = client.auth.currentUser?.id ?? AppConstants.devUserId;
 
       _activeStartTime = DateTime.now();
 
@@ -414,7 +409,7 @@ class TrainingProvider extends ChangeNotifier {
 
     try {
       final client = SupabaseConfig.client;
-      final userId = client.auth.currentUser?.id ?? '00000000-0000-0000-0000-000000000000';
+      final userId = client.auth.currentUser?.id ?? AppConstants.devUserId;
 
       final startOfDay = DateTime(date.year, date.month, date.day);
       final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59, 999);

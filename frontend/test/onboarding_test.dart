@@ -77,8 +77,8 @@ void main() {
       // Carbs: (1200 - (480 + 540)) / 4 = 180 / 4 = 45g
       expect(provider.targetCarbs, 45.0);
     });
-  Group('Database operations mock testing outline', () {
-    // Standard integration mocks or database calls would be verified here.
-  });
+    group('Database operations mock testing outline', () {
+      // Standard integration mocks or database calls would be verified here.
+    });
   });
 }

@@ -12,6 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/z_init.sql:/docker-entrypoint-initdb.d/z_init.sql
+      - ./docker/postgres/zz_exercises_seed.sql:/docker-entrypoint-initdb.d/zz_exercises_seed.sql
     networks:
       - nutrifit-network
     healthcheck:
@@ -31,6 +32,16 @@ services:
       DATABASE_URL: postgresql://postgres:devpassword123@postgres:5432/postgres
       OLLAMA_HOST: http://ollama:11434
       PORT: 8000
+      # --- Capa de IA multi-proveedor (F8) ---
+      # Claves opcionales por defecto; el cliente puede enviar la suya por request.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # base_url de servidores locales del host (LM Studio / vLLM)
+      LMSTUDIO_URL: ${LMSTUDIO_URL:-http://host.docker.internal:1234/v1}
+      VLLM_URL: ${VLLM_URL:-http://host.docker.internal:8000/v1}
+    extra_hosts:
+      # permite al contenedor alcanzar servidores de IA que corren en el host
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

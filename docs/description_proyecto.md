@@ -16,6 +16,7 @@ Para asegurar que el sistema pueda escalar fácilmente a microservicios independ
    - Servicio (estilo LiftLog/Strong) para gestionar rutinas, registrar series en vivo, RPE y calcular volumen de entrenamiento.
 3. **Dominio de IA (Servicio independiente `ai_service`):**
    - Microservicio contenedor en Python/FastAPI. Procesa imágenes de comida y de máquinas de gimnasio y las mapea a los otros dos servicios.
+   - **Chatbot multi-proveedor (F8):** además de visión, expone un asistente de IA que genera planes de comida y rutinas (con ejercicios reales del catálogo), responde dudas de fitness/nutrición y analiza el progreso. Soporta **OpenAI, OpenRouter, Google Gemini, Claude, Ollama, LM Studio y vLLM** mediante una capa multi-proveedor; el usuario elige el proveedor e introduce su API key desde una pantalla de **Ajustes de IA** en la app. Ver ADR 7 en `architecture.md`.
 
 ---
 

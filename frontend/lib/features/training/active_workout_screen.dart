@@ -96,6 +96,7 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                             final exercise = provider.exercises[index];
                             final isAdded = provider.activeExercisesIds.contains(exercise.id);
                             return ListTile(
+                              leading: _ExerciseThumbnail(exercise: exercise),
                               title: Text(
                                 exercise.name,
                                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
@@ -104,9 +105,19 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                                 '${exercise.category} • ${exercise.equipment ?? "Cuerpo"}',
                                 style: const TextStyle(color: Colors.grey, fontSize: 12),
                               ),
-                              trailing: isAdded
-                                  ? const Icon(Icons.check_circle_rounded, color: Color(0xFF2ED573))
-                                  : const Icon(Icons.add_circle_outline_rounded, color: Colors.grey),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.info_outline_rounded, color: Colors.grey),
+                                    tooltip: 'Ver detalle',
+                                    onPressed: () => _showExerciseDetail(context, exercise),
+                                  ),
+                                  isAdded
+                                      ? const Icon(Icons.check_circle_rounded, color: Color(0xFF2ED573))
+                                      : const Icon(Icons.add_circle_outline_rounded, color: Colors.grey),
+                                ],
+                              ),
                               onTap: () {
                                 if (isAdded) {
                                   provider.removeExerciseFromActiveWorkout(exercise.id);
@@ -537,6 +548,98 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                 ),
               ],
             ),
+    );
+  }
+
+  /// Muestra el detalle de un ejercicio: imagen de referencia e instrucciones.
+  void _showExerciseDetail(BuildContext context, Exercise exercise) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: const Color(0xFF1E201E),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 520),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (exercise.imageUrls.isNotEmpty)
+                  Center(
+                    child: Image.network(
+                      exercise.imageUrls.first,
+                      height: 180,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) =>
+                          const Icon(Icons.fitness_center_rounded, size: 96, color: Colors.grey),
+                    ),
+                  )
+                else
+                  const Center(
+                    child: Icon(Icons.fitness_center_rounded, size: 96, color: Colors.grey),
+                  ),
+                const SizedBox(height: 12),
+                Text(
+                  exercise.name,
+                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${exercise.category} • ${exercise.targetMuscle ?? "-"} • ${exercise.equipment ?? "Cuerpo"}',
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                if (exercise.instructionsEn.isEmpty)
+                  const Text('Sin instrucciones disponibles.', style: TextStyle(color: Colors.grey))
+                else
+                  ...exercise.instructionsEn.asMap().entries.map(
+                        (entry) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0),
+                          child: Text(
+                            '${entry.key + 1}. ${entry.value}',
+                            style: const TextStyle(color: Colors.white70, fontSize: 13),
+                          ),
+                        ),
+                      ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Miniatura cuadrada del ejercicio; cae a un icono si la imagen no carga.
+class _ExerciseThumbnail extends StatelessWidget {
+  const _ExerciseThumbnail({required this.exercise});
+
+  final Exercise exercise;
+
+  @override
+  Widget build(BuildContext context) {
+    const double size = 44;
+    if (exercise.imageUrls.isEmpty) {
+      return const SizedBox(
+        width: size,
+        height: size,
+        child: Icon(Icons.fitness_center_rounded, color: Colors.grey),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.network(
+        exercise.imageUrls.first,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const SizedBox(
+          width: size,
+          height: size,
+          child: Icon(Icons.fitness_center_rounded, color: Colors.grey),
+        ),
+      ),
     );
   }
 }

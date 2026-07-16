@@ -6,3 +6,5 @@ sqlalchemy==2.0.31
 pydantic==2.7.4
 pydantic-settings==2.3.4
 python-multipart==0.0.9
+openai==1.51.0
+anthropic==0.39.0

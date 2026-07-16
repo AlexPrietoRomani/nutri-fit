@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase_config.dart';
+import '../../core/constants.dart';
 
 class OnboardingProvider extends ChangeNotifier {
   // Form fields
@@ -142,6 +143,42 @@ class OnboardingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Carga el perfil persistido (public.users + nutrition.user_goals) para que
+  /// el Dashboard muestre datos reales tras un arranque en frío (no defaults).
+  Future<void> loadProfile() async {
+    try {
+      final client = SupabaseConfig.client;
+      final userId = client.auth.currentUser?.id ?? AppConstants.devUserId;
+
+      final u = await client.from('users').select().eq('id', userId).maybeSingle();
+      if (u != null) {
+        _name = (u['name'] as String?) ?? _name;
+        _gender = (u['gender'] as String?) ?? _gender;
+        _heightCm = (u['height_cm'] as num?)?.toDouble() ?? _heightCm;
+        _bodyType = (u['body_type'] as String?) ?? _bodyType;
+        _palLevel = (u['pal_level'] as num?)?.toDouble() ?? _palLevel;
+        final bd = u['birth_date'] as String?;
+        if (bd != null && bd.isNotEmpty) {
+          _birthDate = DateTime.tryParse(bd) ?? _birthDate;
+        }
+      }
+
+      final g = await client
+          .schema('nutrition')
+          .from('user_goals')
+          .select('goal_type')
+          .eq('user_id', userId)
+          .maybeSingle();
+      if (g != null) {
+        _goalType = (g['goal_type'] as String?) ?? _goalType;
+      }
+
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error al cargar el perfil: $e');
+    }
+  }
+
   /// Inserts/saves the onboarding configuration to Supabase db.
   Future<bool> saveProfile(BuildContext context) async {
     _isLoading = true;
@@ -153,7 +190,7 @@ class OnboardingProvider extends ChangeNotifier {
       
       // In dev mode without GoTrue, use a deterministic user ID.
       // This avoids calls to /auth/v1/ which don't exist in our stack.
-      const userId = '00000000-0000-4000-a000-000000000001';
+      const userId = AppConstants.devUserId;
 
       // 1. Insert into public.users
       await client.from('users').upsert({
