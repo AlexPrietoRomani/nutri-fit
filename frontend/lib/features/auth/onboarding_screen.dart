@@ -15,6 +15,49 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   int _currentPage = 0;
   final int _totalPages = 8;
 
+  /// Diálogo para editar un valor numérico (altura/peso) con el teclado,
+  /// complementando el slider. Devuelve el valor ya acotado a [min, max].
+  Future<void> _editNumberDialog({
+    required String title,
+    required double current,
+    required double min,
+    required double max,
+    required String unit,
+    required ValueChanged<double> onSubmit,
+  }) async {
+    final ctrl = TextEditingController(text: current.toStringAsFixed(current == current.roundToDouble() ? 0 : 1));
+    final value = await showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E201E),
+        title: Text(title, style: const TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: const TextStyle(color: Colors.white, fontSize: 20),
+          decoration: InputDecoration(
+            suffixText: unit,
+            suffixStyle: const TextStyle(color: Colors.grey),
+            enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2D302D))),
+            focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2ED573))),
+          ),
+          onSubmitted: (v) => Navigator.pop(context, double.tryParse(v.replaceAll(',', '.'))),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, double.tryParse(ctrl.text.replaceAll(',', '.'))),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    if (value != null) {
+      onSubmit(value.clamp(min, max));
+    }
+  }
+
   @override
   void dispose() {
     _pageController.dispose();
@@ -325,25 +368,41 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    provider.heightCm.round().toString(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 48,
-                      fontWeight: FontWeight.bold,
-                    ),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => _editNumberDialog(
+                  title: 'Ingresa tu altura',
+                  current: provider.heightCm,
+                  min: 100,
+                  max: 230,
+                  unit: 'cm',
+                  onSubmit: provider.setHeight,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        provider.heightCm.round().toString(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 48,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Text(
+                        'cm',
+                        style: TextStyle(color: Colors.grey, fontSize: 20),
+                      ),
+                      const SizedBox(width: 6),
+                      const Icon(Icons.edit_outlined, color: Colors.grey, size: 18),
+                    ],
                   ),
-                  const SizedBox(width: 4),
-                  const Text(
-                    'cm',
-                    style: TextStyle(color: Colors.grey, fontSize: 20),
-                  ),
-                ],
+                ),
               ),
               const SizedBox(height: 24),
               SliderTheme(
@@ -387,25 +446,41 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    provider.weightKg.toStringAsFixed(1),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 48,
-                      fontWeight: FontWeight.bold,
-                    ),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => _editNumberDialog(
+                  title: 'Ingresa tu peso',
+                  current: provider.weightKg,
+                  min: 30,
+                  max: 200,
+                  unit: 'kg',
+                  onSubmit: provider.setWeight,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        provider.weightKg.toStringAsFixed(1),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 48,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Text(
+                        'kg',
+                        style: TextStyle(color: Colors.grey, fontSize: 20),
+                      ),
+                      const SizedBox(width: 6),
+                      const Icon(Icons.edit_outlined, color: Colors.grey, size: 18),
+                    ],
                   ),
-                  const SizedBox(width: 4),
-                  const Text(
-                    'kg',
-                    style: TextStyle(color: Colors.grey, fontSize: 20),
-                  ),
-                ],
+                ),
               ),
               const SizedBox(height: 24),
               SliderTheme(

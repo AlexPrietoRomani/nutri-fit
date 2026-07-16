@@ -15,6 +15,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   bool _isSignUp = false;
   bool _isLoading = false;
+  bool _obscurePassword = true;
   String? _errorMessage;
 
   @override
@@ -148,12 +149,20 @@ class _AuthScreenState extends State<AuthScreen> {
                       TextField(
                         key: const Key('password_field'),
                         controller: _passwordController,
-                        obscureText: true,
+                        obscureText: _obscurePassword,
                         style: const TextStyle(color: Colors.white, fontSize: 16),
                         decoration: InputDecoration(
                           hintText: 'Contraseña',
                           hintStyle: const TextStyle(color: Colors.grey),
                           prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF2ED573)),
+                          suffixIcon: IconButton(
+                            key: const Key('toggle_password_visibility'),
+                            icon: Icon(
+                              _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                              color: Colors.grey,
+                            ),
+                            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                          ),
                           filled: true,
                           fillColor: const Color(0xFF0E0F0E),
                           border: OutlineInputBorder(

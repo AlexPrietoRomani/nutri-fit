@@ -4,6 +4,17 @@ Registro forense de bugs, bloqueos y refactors. Formato: síntoma → hipótesis
 
 ---
 
+## 2026-07-16 · INC-011 · Signup real falla en el navegador con "Failed to fetch" (CORS)
+
+- **Severidad:** Alta (bloqueante — nadie podía registrarse desde la app web) · **Estado:** RESUELTO
+- **Contexto:** El usuario probó el signup real en `http://localhost:8080` tras F10/F11. `curl` contra `/auth/v1/signup` (directo y con `Origin`/preflight simulado a mano) devolvía 200 sin problema, así que parecía que el stack estaba sano.
+- **Síntoma:** En el navegador real: `ClientException: Failed to fetch, uri=http://localhost:54321/auth/v1/signup?`. La consola del navegador (reproducido con Playwright/Chromium real, no `curl`) mostraba el error real: `Access to fetch ... has been blocked by CORS policy: Request header field x-supabase-api-version is not allowed by Access-Control-Allow-Headers in preflight response.`
+- **Hipótesis descartada:** el stack estaba caído o mal configurado — descartada porque `curl` con `Origin`/preflight manual sí funcionaba.
+- **Causa raíz:** `curl` no aplica CORS del lado cliente, así que un preflight simulado a mano (con los headers que YO elegí probar) puede "pasar" aunque el preflight REAL del navegador falle. `supabase_flutter` envía el header `x-supabase-api-version` en sus requests (incluido en el signup), pero `docker/gateway/nginx.conf` en el `location /auth/v1/` (copiado de `/rest/v1/` en F10) solo declaraba `Access-Control-Allow-Headers: authorization,content-type,apikey,x-client-info,prefer,accept,accept-profile,content-profile` — sin `x-supabase-api-version`. El navegador, al ver que el header que necesita mandar no está en la lista permitida, bloquea la petición completa antes de enviarla (`net::ERR_FAILED`).
+- **Resolución:** Añadido `x-supabase-api-version` a `Access-Control-Allow-Headers` en ambos `location` (`/rest/v1/` y `/auth/v1/`) de `nginx.conf`, más `proxy_hide_header 'Access-Control-Allow-Credentials'` (GoTrue emite ese header con `true` junto a `Access-Control-Allow-Origin: *` propio, una combinación inválida para requests credentialed que el gateway ya oculta para los demás headers CORS — se añadió por consistencia/prevención, aunque el fallo real reproducido fue el de `x-supabase-api-version`). `docker compose restart gateway`.
+- **Verificación:** Reproducido y confirmado con Playwright/Chromium real (headless) contra `http://localhost:8080`: antes del fix, `[requestfailed] .../signup? -> net::ERR_FAILED` con el mensaje de CORS en consola; después del fix, `[response] 200 .../signup?` y la app avanza al Onboarding.
+- **Lecciones:** `curl` **no sirve para validar CORS** — no aplica la política del navegador, así que un preflight "exitoso" con `curl` no garantiza que el navegador real vaya a aceptar la respuesta. Para diagnosticar fallos de CORS hay que reproducir con un navegador real (Playwright/Chromium headless) y leer el mensaje de consola, que dice EXACTAMENTE qué header/método faltó — no adivinar. Al copiar un bloque `location` de CORS a uno nuevo (como se hizo de `/rest/v1/` a `/auth/v1/` en F10), revisar si el servicio de destino (aquí GoTrue) envía headers propios (`x-supabase-api-version`, `Access-Control-Allow-Credentials`) que el cliente real necesita y que el bloque original no contemplaba.
+
 ## 2026-07-16 · INC-009 · GoTrue no arranca: `password authentication failed for user "supabase_auth_admin"`
 
 - **Severidad:** Alta (bloqueante para T10.1.1) · **Estado:** RESUELTO
