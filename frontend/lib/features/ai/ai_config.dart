@@ -24,6 +24,9 @@ const Map<String, String> kSuggestedModel = {
   'vllm': 'local-model',
 };
 
+/// Modelos Ollama recomendados para instalación rápida desde Ajustes (F12).
+const List<String> kRecommendedOllamaModels = ['gemma4:e4b', 'llama3.2:3b', 'qwen2.5:3b'];
+
 /// Configuración de IA elegida por el usuario. Se envía al backend por request.
 class AIConfig {
   final String provider;
