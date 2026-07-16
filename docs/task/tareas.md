@@ -995,3 +995,108 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   - `[X]` A15.3.1.1: Borde/ícono de "completado" cuando todas las series de un ejercicio están marcadas.
 - **✅ Tests Unitarios:** widget test — con todos los sets de un ejercicio `completed: true`, la tarjeta muestra el indicador visual; con al menos uno sin completar, no lo muestra. Verificado: 45/45 tests, sin regresión.
 - **🎭 Tests de Simulación de Usuario:** marcar todas las series de un ejercicio como hechas → ver el indicador visual de completado en la tarjeta, sin afectar el resto de la sesión.
+
+---
+
+## F16: Planificación de Nutrición y Entrenamiento con Seguimiento de Adherencia [ ]
+
+> Pasa de "solo registrar" a "planificar + comparar contra lo real": plan de comidas y rutina por defecto, comparación planificado-vs-real en el Diario, sección "Plan de Hoy" en el Dashboard, y escáner de código de barras real por cámara. `TrainingProvider.todayCaloriesBurned` (F6) YA calcula el gasto calórico desde sesiones completadas reales — no se toca.
+> **AC de Fase:** `nutrition.meal_plans` (JSONB, RLS) + `is_default` en `meal_plans`/`training.routines` con índice único parcial · botón "Guardar plan" en el chat · marcar/desmarcar predeterminado · comparación planificado-vs-real en el Diario · "Plan de Hoy" en el Dashboard · `mobile_scanner` real · ADR 14.
+
+### SF16.1: Esquema (DB) [ ]
+
+#### T16.1.1: `nutrition.meal_plans` + `is_default` en ambas tablas [ ]
+- **🧠 Explicación:** `nutrition.meal_plans` es al Diario lo que `training.routines` (F13) es a Entrenamiento: una plantilla guardable, no un registro de lo que ya pasó. `is_default` (con índice único parcial) permite marcar "el plan/rutina de hoy" sin ambigüedad, garantizado a nivel de DB.
+- **💡 Cómo hacerlo:** nuevo archivo `docker/postgres/zzzz3_meal_plans.sql` (corre después de `zzzz2_routines.sql`):
+  ```sql
+  CREATE TABLE IF NOT EXISTS nutrition.meal_plans (
+      id UUID DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL,
+      name TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'ai',
+      meals JSONB NOT NULL,
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+      CONSTRAINT pk_meal_plans PRIMARY KEY (id),
+      CONSTRAINT fk_meal_plans_users FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE,
+      CONSTRAINT chk_meal_plans_source CHECK (source IN ('ai', 'manual'))
+  );
+  ALTER TABLE nutrition.meal_plans ENABLE ROW LEVEL SECURITY;
+  CREATE POLICY own_meal_plans ON nutrition.meal_plans
+    USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  GRANT ALL ON nutrition.meal_plans TO authenticated;
+  CREATE UNIQUE INDEX uq_meal_plans_default_per_user ON nutrition.meal_plans (user_id) WHERE is_default;
+
+  ALTER TABLE training.routines ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE;
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_routines_default_per_user ON training.routines (user_id) WHERE is_default;
+  ```
+  Revisa el patrón real de `GRANT`/RLS ya usado en `zzzz2_routines.sql` (F13) para no desviarte (p. ej. si ahí NO se dio `GRANT` a `anon`, sigue el mismo criterio aquí).
+- **Acciones:**
+  - `[ ]` A16.1.1.1: `nutrition.meal_plans` (JSONB `meals`) + RLS + `GRANT`.
+  - `[ ]` A16.1.1.2: `is_default` + índice único parcial en `meal_plans` y en `training.routines` (`ALTER TABLE`).
+- **✅ Tests Unitarios:** verificación manual con JWT reales (extender `tests/e2e/test_auth_rls_e2e.sh`, mismo patrón AC6-AC8 de F13) — aislamiento de `meal_plans` por usuario; intentar marcar dos filas como `is_default=true` para el mismo usuario en la misma tabla debe fallar por el índice único (o la app debe desmarcar la anterior antes de marcar la nueva — cubrir ambos: la protección de DB Y el flujo de "solo una a la vez" desde la app en T16.2.2).
+- **🎭 Tests de Simulación de Usuario:** N/A (DB pura, cubierto por T16.2.x).
+
+### SF16.2: Guardar y marcar predeterminado [ ]
+
+#### T16.2.1: Botón "Guardar plan" en la tarjeta de plan de comida del chat [ ]
+- **🧠 Explicación:** Mismo patrón exacto que "Guardar rutina" (F13, `chat_screen.dart`) pero para `nutrition.meal_plans`. El chat ya genera `meal_plan` vía `/chat-plan` (F11) y ya lo muestra en `_buildMealPlanCard` — solo falta la acción de guardado real.
+- **💡 Cómo hacerlo:** en `chat_screen.dart`, análogo a `_saveRoutine`, un `_saveMealPlan(BuildContext, Map mealPlan)` con diálogo de nombre → `INSERT` a `nutrition.meal_plans` (`meals: mealPlan['meals']`) → `SnackBar` real. Añadir el botón junto al título "Plan de comidas" en `_buildMealPlanCard`, mismo estilo que el de rutina.
+- **Acciones:**
+  - `[ ]` A16.2.1.1: Botón "Guardar plan" en `_buildMealPlanCard`.
+  - `[ ]` A16.2.1.2: Diálogo de nombre + `INSERT` real a `nutrition.meal_plans` + confirmación.
+- **✅ Tests Unitarios:** widget test — el botón existe cuando `mealPlan != null`; al confirmar el nombre, arma el `INSERT` con `schema('nutrition')`/tabla/shape correctos (mismo seam inyectable de INC-015 usado para `_saveRoutine`, reusarlo aquí en vez de reinventarlo).
+- **🎭 Tests de Simulación de Usuario:** generar un plan de comida en el chat → "Guardar plan" → nombrarlo → confirmación real.
+
+#### T16.2.2: Marcar/desmarcar predeterminado (rutinas y planes de comida) [ ]
+- **🧠 Explicación:** Un usuario puede tener varias rutinas/planes guardados pero solo UNO puede ser "el de hoy". Marcar uno nuevo debe desmarcar el anterior (evita depender solo del índice único de DB para la UX — un `UPDATE` que falle por el índice sería una mala experiencia si no se maneja).
+- **💡 Cómo hacerlo:** en `TrainingProvider`, un método `setDefaultRoutine(routineId)` que hace, en la práctica, dos `UPDATE`: desmarcar cualquier fila `is_default=true` del usuario en `training.routines`, luego marcar la elegida (o un solo `UPDATE ... SET is_default = (id = :elegido)` si Postgres/PostgREST lo permite en una sola llamada — usa tu criterio, prioriza que quede exactamente una marcada). Análogo `setDefaultMealPlan(planId)` en `NutritionProvider` sobre `nutrition.meal_plans`. En `workout_screen.dart` ("Mis Rutinas") y en una nueva sección "Mis Planes de Comida" en `diary_screen.dart` (listar `nutrition.meal_plans` del usuario, mismo patrón visual que "Mis Rutinas"), un ícono/botón (p. ej. `Icons.star`/`Icons.star_border`) por ítem que llama el método correspondiente y refresca la lista.
+- **Acciones:**
+  - `[ ]` A16.2.2.1: `setDefaultRoutine`/`fetchMealPlans`/`setDefaultMealPlan` en los providers correspondientes.
+  - `[ ]` A16.2.2.2: Acción de marcar/desmarcar en "Mis Rutinas" y nueva sección "Mis Planes de Comida" en el Diario.
+- **✅ Tests Unitarios:** provider test — marcar un ítem como default dentro de una lista con otro ya marcado deja exactamente uno marcado (el nuevo); desmarcar dificulta que quede alguno si no se elige otro (según el criterio que implementes, documentarlo).
+- **🎭 Tests de Simulación de Usuario:** con 2+ rutinas/planes guardados, marcar uno como predeterminado → el anterior se desmarca automáticamente → se refleja en el Dashboard (T16.5.1).
+
+### SF16.3: Comparación planificado vs real (Diario) [ ]
+
+#### T16.3.1: Planificado vs real por tipo de comida [ ]
+- **🧠 Explicación:** Para cada sección de comida del día (`_buildMealSection`, ya existente en `diary_screen.dart`), si hay un plan de comida default, mostrar el ítem planificado de ese `meal_type` junto a lo realmente registrado, con el delta de calorías.
+- **💡 Cómo hacerlo:** al cargar el Diario, además de `loadDailyData`, buscar el plan default del usuario (`NutritionProvider.fetchDefaultMealPlan()` o filtrar de `fetchMealPlans()` el que tenga `is_default`); en `_buildMealSection`, antes/después de la lista de `FoodLog` reales, si existe un ítem planificado para ese `meal_type` en el plan default, un bloque compacto "Planificado: `<food_name>` · `<calories>` kcal" con un indicador de delta (`real - planificado`, con color verde/rojo/gris según esté cerca, por encima, o sin registrar aún). Sin plan default, no mostrar nada nuevo (comportamiento actual intacto).
+- **Acciones:**
+  - `[ ]` A16.3.1.1: Obtener el plan default al cargar el Diario.
+  - `[ ]` A16.3.1.2: Bloque de comparación planificado-vs-real por tipo de comida, con delta.
+- **✅ Tests Unitarios:** con un plan default mockeado y logs reales variados (sin registro, exacto, de más, de menos), el delta calculado es correcto en cada caso.
+- **🎭 Tests de Simulación de Usuario:** con un plan de comida marcado como predeterminado, abrir el Diario de hoy → ver lo planificado junto a lo real por cada comida.
+
+### SF16.4: Escáner de código de barras real [ ]
+
+#### T16.4.1: `mobile_scanner` reemplaza el diálogo mock [ ]
+- **🧠 Explicación:** Hoy `_showBarcodeScannerMockDialog` (en `diary_screen.dart`) es un diálogo con códigos de prueba hardcodeados y un campo de texto manual — sin cámara real. Se añade escaneo real, conservando la entrada manual como respaldo.
+- **💡 Cómo hacerlo:** añadir `mobile_scanner` a `pubspec.yaml` (paquete activamente mantenido, cámara nativa multiplataforma incl. web); nueva pantalla/diálogo con `MobileScanner` que, al detectar un código, llama `NutritionProvider.searchBarcode(codigo)` (YA EXISTE, no lo toques) y sigue el flujo ya existente (`_searchAndShowBarcodeResult`). El diálogo actual pasa a tener dos vías: botón "Escanear con cámara" (nuevo, real) y el campo de entrada manual (conservado, ya existente) — no elimines la entrada manual, es el respaldo para cuando la cámara no esté disponible (web sin permiso, dispositivo sin cámara, etc.).
+- **Acciones:**
+  - `[ ]` A16.4.1.1: Dependencia `mobile_scanner` + pantalla/diálogo de escaneo real.
+  - `[ ]` A16.4.1.2: Al detectar un código, dispara el mismo flujo ya existente de `searchBarcode` → confirmar → `addFoodLog`.
+- **✅ Tests Unitarios:** widget test — el botón de escanear con cámara existe junto a la entrada manual (no la reemplaza); con el escáner mockeado (no se puede probar la cámara real en CI), detectar un código dispara `searchBarcode` con el valor correcto.
+- **🎭 Tests de Simulación de Usuario:** desde un dispositivo/navegador con cámara, escanear un código de barras real → ver el producto (OpenFoodFacts) → confirmar → aparece en el Diario.
+
+### SF16.5: Dashboard "Plan de Hoy" [ ]
+
+#### T16.5.1: Sección de rutina y plan de comida por defecto [ ]
+- **🧠 Explicación:** El Dashboard hoy no muestra nada de planificación — solo balance calórico y adherencia semanal ya calculados. Se añade una sección que muestre la rutina default (¿ya hay una sesión completada hoy?) y el plan de comida default (calorías planificadas vs `NutritionProvider.totalCalories`, ya calculado).
+- **💡 Cómo hacerlo:** en `dashboard_screen.dart`, una nueva `Card`/sección "Plan de Hoy" antes o después de las tarjetas existentes (`_buildCaloricBalanceCard`, `_buildMacrosCard`, `_buildWeeklyAdherenceCard`): consulta la rutina default (`TrainingProvider`) y si hay una `WorkoutSession` completada HOY con ese nombre (o simplemente si hay alguna sesión completada hoy, más simple y suficiente — decide con criterio); consulta el plan de comida default (`NutritionProvider`) y compara la suma de `calories` de sus `meals` contra `provider.totalCalories` de hoy (ya existe). No toques `todayCaloriesBurned` (F6, ya correcto).
+- **Acciones:**
+  - `[ ]` A16.5.1.1: Sección "Plan de Hoy" con rutina default + indicador de "hecho hoy".
+  - `[ ]` A16.5.1.2: Plan de comida default: calorías planificadas vs consumidas.
+- **✅ Tests Unitarios:** widget test — con una rutina default y una sesión completada hoy mockeadas, el indicador de "hecho" aparece; sin sesión completada, no. El total planificado del plan de comida default se calcula correctamente sumando `calories` de `meals`.
+- **🎭 Tests de Simulación de Usuario:** con una rutina y un plan de comida marcados como predeterminados, abrir el Dashboard → ver la sección "Plan de Hoy" reflejando el estado real del día.
+
+### SF16.6: Documentación [ ]
+
+#### T16.6.1: ADR 14 en `architecture.md` + esquema en `diseno_db.md` [ ]
+- **🧠 Explicación:** Documentar la nueva capa de planificación (mirroring de `training.routines` para `nutrition.meal_plans`), la decisión de `is_default` + índice único parcial, y la decisión de `mobile_scanner`.
+- **💡 Cómo hacerlo:** ADR 14 con contexto (solo tracking, sin planificación), decisión de esquema (`meal_plans` mirror de `routines`, índice único parcial para `is_default`), decisión de escáner (`mobile_scanner` sobre el mock), y el flujo completo (chat genera → guardar → marcar default → comparación en Diario/Dashboard). `nutrition.meal_plans` + columnas `is_default` documentadas en `diseno_db.md` (secciones 2.2 y 2.3).
+- **Acciones:**
+  - `[ ]` A16.6.1.1: ADR 14 en `architecture.md`.
+  - `[ ]` A16.6.1.2: `nutrition.meal_plans` + `is_default` en `diseno_db.md`.
+- **✅ Tests Unitarios:** N/A (docs).
+- **🎭 Tests de Simulación de Usuario:** N/A (docs).

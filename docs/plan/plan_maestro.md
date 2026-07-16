@@ -238,3 +238,33 @@ Este documento detalla la planificación del desarrollo de Nutri-Fit, incluyendo
   - T15.2.1: `_showExerciseDetail` muestra todas las `imageUrls` en un carrusel deslizable con indicador de página, no solo la primera.
 - **F15.SF3: Pulido visual de la tarjeta de ejercicio**
   - T15.3.1: Indicador visual de ejercicio 100% completado + revisión de jerarquía visual de la tabla de series.
+
+### Fase 16: Planificación de Nutrición y Entrenamiento con Seguimiento de Adherencia
+- **Macro-objetivo:** Hoy la app solo *registra* lo que pasó (comidas sueltas en el Diario, series ejecutadas en Entrenamiento). Esta Fase añade la capa de **planificación**: un plan de comidas por defecto y una rutina por defecto (F13 ya guarda rutinas, pero ninguna se puede marcar como "la de hoy"), y compara lo planificado contra lo real — tanto en el Diario (¿comí lo que tocaba?) como en el Dashboard (¿entrené lo que tocaba? ¿comí lo que tocaba?), sin recalcular el gasto calórico desde cero (`TrainingProvider.todayCaloriesBurned` ya estima calorías quemadas desde las sesiones completadas reales — F6 — y no se toca).
+- **Entregable global:** el chat puede generar Y guardar planes de comida (mismo patrón que "Guardar rutina" de F13); una rutina y un plan de comida pueden marcarse como "predeterminados"; el Diario muestra, por tipo de comida, lo planificado junto a lo realmente registrado; el Dashboard tiene una sección "Plan de Hoy" (rutina default + ¿se hizo? / plan de comida default + calorías planificadas vs consumidas); escaneo de código de barras real por cámara como alternativa más rápida a la detección por IA.
+- **Decisión de esquema:** `nutrition.meal_plans` — mismo patrón exacto que `training.routines` (F13): una sola tabla con los items (`meals`) en `JSONB`, RLS `auth.uid() = user_id`, sin tabla relacional aparte (no hay hoy necesidad de queries por comida individual). Se añade `is_default BOOLEAN DEFAULT FALSE` a AMBAS tablas (`training.routines` y `nutrition.meal_plans`), con un **índice único parcial** (`WHERE is_default`) por usuario en cada una — garantiza a nivel de DB que solo puede haber un default por usuario y tabla, no solo por convención de la app.
+- **Decisión de escáner:** `mobile_scanner` (paquete activamente mantenido, usa la cámara nativa) reemplaza el diálogo mock (`_showBarcodeScannerMockDialog`, con códigos de prueba hardcodeados) como vía principal; se conserva la entrada manual de código como respaldo (dispositivos sin cámara, o pruebas), reusando `NutritionProvider.searchBarcode` ya existente (OpenFoodFacts) sin cambios.
+- **Criterios de Aceptación (AC):**
+  - **AC1 (esquema):** `nutrition.meal_plans` con RLS + índice único parcial de `is_default`; `training.routines` gana `is_default` + su propio índice único parcial. Migración segura sobre datos existentes (rutinas ya guardadas quedan con `is_default = false`).
+  - **AC2 (guardar plan de comida):** la tarjeta de plan de comida del chat (`_buildMealPlanCard`) tiene un botón "Guardar plan" análogo a "Guardar rutina" (F13) → `INSERT` real a `nutrition.meal_plans`.
+  - **AC3 (marcar predeterminado):** en "Mis Rutinas" (Entrenamiento) y en una nueva sección "Mis Planes de Comida" (Diario), cada ítem guardado tiene una acción para marcarlo como predeterminado; marcar uno desmarca automáticamente cualquier otro default previo del mismo usuario (a nivel de app Y protegido por el índice único parcial de DB).
+  - **AC4 (comparación en el Diario):** por cada tipo de comida del día, si hay un plan de comida default, se muestra lo planificado (nombre/calorías/macros) junto a lo realmente registrado ese día para ese tipo de comida, con un delta visible (más/menos de lo planificado, o "no registrado aún").
+  - **AC5 (Dashboard "Plan de Hoy"):** sección nueva con (a) la rutina default (nombre + si ya hay una sesión completada hoy) y (b) el plan de comida default (calorías totales planificadas vs `NutritionProvider.totalCalories` ya calculado). No se toca `todayCaloriesBurned` (F6, ya correcto).
+  - **AC6 (escáner real):** botón de escanear código de barras abre la cámara real (`mobile_scanner`), decodifica, y sigue el mismo flujo ya existente de `searchBarcode` → mostrar resultado → confirmar → `addFoodLog`; la entrada manual sigue disponible como respaldo.
+  - **AC7 (docs):** ADR 14 en `architecture.md`; `nutrition.meal_plans` + columnas `is_default` documentadas en `diseno_db.md`.
+- **Estrategia de Pruebas (nivel Fase):**
+  - **Tests Unitarios:** RLS de `meal_plans` con JWT reales (mismo patrón que `training.routines`, F13); provider tests — marcar un plan/rutina como default desmarca cualquier otro; la comparación planificado-vs-real calcula el delta correctamente para varios casos (sin registro, exacto, de más, de menos); el escáner decodifica un código y dispara `searchBarcode` con el valor correcto (mockeado, sin cámara real en CI).
+  - **Tests de Simulación de Usuario:** generar y guardar un plan de comida desde el chat → marcarlo predeterminado → en el Diario ver la comparación planificado-vs-real de ese día; marcar una rutina guardada como predeterminada → verla reflejada en el Dashboard; escanear un código de barras real con la cámara → ver el producto → confirmar → aparece en el Diario.
+- **F16.SF1: Esquema (DB)**
+  - T16.1.1: `nutrition.meal_plans` (JSONB) + RLS + `is_default` en `meal_plans` y `training.routines`, con índices únicos parciales.
+- **F16.SF2: Guardar y marcar predeterminado**
+  - T16.2.1: Botón "Guardar plan" en la tarjeta de plan de comida del chat.
+  - T16.2.2: Marcar/desmarcar predeterminado en "Mis Rutinas" y en la nueva sección "Mis Planes de Comida" del Diario.
+- **F16.SF3: Comparación planificado vs real (Diario)**
+  - T16.3.1: Por tipo de comida, mostrar lo planificado (del plan default) junto a lo real, con delta.
+- **F16.SF4: Escáner de código de barras real**
+  - T16.4.1: `mobile_scanner` reemplaza el diálogo mock como vía principal; entrada manual como respaldo.
+- **F16.SF5: Dashboard "Plan de Hoy"**
+  - T16.5.1: Sección con rutina default (¿hecha hoy?) y plan de comida default (planificado vs consumido).
+- **F16.SF6: Documentación**
+  - T16.6.1: ADR 14 en `architecture.md` + `nutrition.meal_plans`/`is_default` en `diseno_db.md`.
