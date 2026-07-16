@@ -38,3 +38,24 @@ Registro forense de bugs, bloqueos y refactors. Formato: síntoma → hipótesis
 - **Resolución:** Se añadió `AppConstants.devUserId` en `core/constants.dart` y se reemplazaron los tres IDs mágicos en `onboarding_provider.dart`, `nutrition_provider.dart` y `training_provider.dart` (2 sitios) por esa constante única.
 - **Verificación:** E2E en el emulador Android — tras onboarding, el Dashboard muestra la meta real (2217 kcal, macros 140/257/70) en vez de los defaults (2000/150/200/65), y el inicio de entrenamiento ya no viola el FK. Confirmado también el `INSERT` en `public.users` desde el móvil (nombre "MovilTester").
 - **Lecciones:** El bypass de auth debe centralizar el id de dev en un solo lugar; IDs mágicos duplicados divergen. El E2E confirmó (y luego validó el fix de) el drift que la auditoría estática ya había señalado (hallazgo A2).
+
+---
+
+## 2026-07-16 · INC-004 · `flutter_secure_storage` falla en Flutter web
+
+- **Severidad:** Media · **Estado:** RESUELTO
+- **Contexto:** E2E de UI del chatbot (F8) en el build web servido en `:8080`.
+- **Síntoma:** Al abrir el chat y al guardar la config de IA, dos `pageerror` en el navegador; la pantalla de Ajustes se quedaba atascada (no navegaba tras "Guardar").
+- **Causa raíz:** `AiProvider.loadConfig`/`saveConfig` usaban `flutter_secure_storage`, cuyo soporte web lanzó excepción en este entorno. Como `saveConfig` hacía `await _store.save(...)` **antes** de fijar `_config`, la excepción impedía guardar la config en memoria y el `Navigator.pop`.
+- **Resolución:** En `ai_provider.dart`, `saveConfig` fija `_config` en memoria y notifica **primero**, y persiste en secure storage como *best-effort* dentro de `try/catch`; `loadConfig` también degrada sin crash. En móvil (Keychain/Keystore) la persistencia sigue funcionando; en web la config vive en memoria durante la sesión.
+- **Verificación:** Re-corrido el E2E web sin `pageerror`; la config se guarda y el chat opera.
+- **Lecciones:** El almacenamiento seguro es específico de plataforma; nunca bloquear el estado de UI en una escritura de storage que puede fallar en web.
+
+## 2026-07-16 · INC-005 · `ai_service` sin CORS bloquea al frontend web
+
+- **Severidad:** Alta (bloqueante en web) · **Estado:** RESUELTO
+- **Síntoma:** El chat web mostraba `ClientException: Failed to fetch, uri=http://localhost:8000/chat`, pese a que `curl` al mismo endpoint funcionaba.
+- **Causa raíz:** El frontend web (`:8080`) llama al `ai_service` (`:8000`) **cross-origin**; el FastAPI no tenía CORS, así que el navegador bloqueaba la petición (curl no aplica CORS, por eso pasaba desapercibido). El gateway nginx tenía CORS solo para PostgREST, no para el `ai_service`.
+- **Resolución:** Se añadió `CORSMiddleware` a `backend/app/main.py` (`allow_origins=["*"]` en dev). Se reconstruyó la imagen del backend.
+- **Verificación:** `OPTIONS /chat` → 200 con `Access-Control-Allow-Origin: *`; el E2E web del chat renderiza la respuesta real de Ollama.
+- **Lecciones:** Todo servicio HTTP consumido directamente por un frontend web necesita CORS; probar siempre desde el navegador (no solo curl). En móvil nativo no aplica (no es navegador).
