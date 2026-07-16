@@ -170,3 +170,28 @@ Este documento detalla la planificación del desarrollo de Nutri-Fit, incluyendo
   - T12.3.2: Sección "Modelos recomendados" con instalación y progreso.
 - **F12.SF4: Documentación**
   - T12.4.1: ADR 11 en `architecture.md`.
+
+### Fase 13: Rutinas Guardables (persistencia real de rutinas generadas por IA)
+- **Macro-objetivo:** Cierra un hallazgo crítico: cuando el usuario le pide al chat "ponme esa rutina en mis ejercicios", el chat **afirma** haberla guardado/cargado, pero es una **alucinación del LLM** — no existe ningún mecanismo de persistencia (verificado por grep, cero resultados). Además, `training.workout_sessions`/`workout_sets` solo registran sesiones ya ejecutadas (peso/reps reales), nunca existió una plantilla reutilizable con sets/reps *objetivo* que el usuario pueda guardar con nombre y seguir después.
+- **Entregable global:** botón explícito "Guardar rutina" en la tarjeta de rutina del chat (nunca depende de que el LLM "confirme" nada); las rutinas guardadas aparecen en Entrenamiento junto a las 3 predefinidas; iniciar una rutina guardada prellena sets/reps/rpe objetivo por ejercicio (para "seguir los pasos"); el texto de respuesta del chat deja de poder afirmar que algo se guardó cuando no fue así.
+- **Decisión de esquema:** una sola tabla `training.routines` con los items como `JSONB` (`[{exercise_id, name, sets, reps, rpe}]`) en vez de una tabla relacional aparte de items — no hay hoy necesidad de queries por item individual (mismo patrón ya usado en `training.exercises.instructions`/`image_urls`), y evita una segunda tabla + JOIN para un caso de uso simple (leer/escribir la rutina completa de una vez). RLS igual que el resto de tablas de usuario (F10): `auth.uid() = user_id`.
+- **Decisión de persistencia:** `INSERT` **directo desde Flutter a Supabase** (`client.schema('training').from('routines').insert(...)`, mismo patrón exacto ya usado por `workout_sessions`/`food_logs`) — NO se toca el `ai_service`. RLS ya garantiza el aislamiento por usuario sin código de backend adicional.
+- **Corrección de la alucinación (root cause, no un parche de prompt):** se elimina la llamada al LLM que generaba el `reply` de `/chat-plan` pidiéndole "resumir qué generaste" — ese resumen es lo que inventaba la confirmación de guardado. Se reemplaza por un texto determinista construido en código a partir de los flags de intención ya detectados (`wants_workout`/`wants_meal_plan`), que nunca puede afirmar una acción que no ocurrió porque no involucra al LLM en absoluto.
+- **Criterios de Aceptación (AC):**
+  - **AC1 (DB):** `training.routines` (`id`, `user_id` FK a `public.users.id` `ON DELETE CASCADE`, `name`, `source` `'ai'|'manual'`, `items` `JSONB NOT NULL`, `cardio_block` opcional, `created_at`) con RLS `auth.uid() = user_id`; `GRANT` a `authenticated` igual que las demás tablas de usuario de F10.
+  - **AC2 (chat):** la tarjeta de rutina del chat tiene un botón "Guardar rutina" que pide un nombre y hace el `INSERT` real; tras guardar, confirma con un `SnackBar` (esto sí es una confirmación real, no una alucinación).
+  - **AC3 (reply sin alucinación):** el campo `reply` de `/chat-plan` ya NO usa una llamada al LLM para resumir acciones — es texto determinista generado en código; nunca puede afirmar un guardado que no ocurrió.
+  - **AC4 (Entrenamiento):** la pantalla de Entrenamiento lista las rutinas guardadas del usuario (vía `SELECT` a `training.routines`) junto a las 3 predefinidas; tocar una guardada inicia una sesión que prellena `sets`/`reps`/`rpe` objetivo por ejercicio (reutilizando `startWorkoutSession`/`addExerciseToActiveWorkout` ya existentes, en vez de un flujo nuevo paralelo).
+  - **AC5 (docs):** ADR 12 en `architecture.md` (esquema `JSONB`, decisión de INSERT directo, corrección de la alucinación); `training.routines` documentada en `diseno_db.md`.
+- **Estrategia de Pruebas (nivel Fase):**
+  - **Tests Unitarios:** backend — `/chat-plan` devuelve un `reply` determinista (sin llamar a `ai_generate` para ese campo) y el conteo de llamadas al motor de IA baja en 1 respecto a antes; frontend — el guardado arma el `INSERT` con el `schema('training')` correcto y el shape de `items` esperado; la pantalla de Entrenamiento mezcla predefinidas + guardadas sin duplicar ids.
+  - **Tests de Simulación de Usuario:** generar una rutina en el chat → pulsar "Guardar rutina" → nombrarla → verla en Entrenamiento → iniciarla y confirmar que los sets/reps ya vienen prellenados con los valores de la IA.
+- **F13.SF1: Esquema de rutinas guardadas (DB)**
+  - T13.1.1: `training.routines` (JSONB `items`) + RLS + GRANTs, siguiendo el patrón de F10.
+- **F13.SF2: Guardado real desde el chat + fin de la alucinación**
+  - T13.2.1: Botón "Guardar rutina" en la tarjeta del chat → `INSERT` directo a Supabase.
+  - T13.2.2: `reply` de `/chat-plan` deja de depender del LLM — texto determinista en código.
+- **F13.SF3: Rutinas guardadas en Entrenamiento**
+  - T13.3.1: Listar rutinas guardadas junto a las predefinidas; iniciar una precarga sets/reps/rpe objetivo.
+- **F13.SF4: Documentación**
+  - T13.4.1: ADR 12 en `architecture.md` + `training.routines` en `diseno_db.md`.

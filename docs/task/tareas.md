@@ -649,3 +649,133 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   - `[X]` A12.4.1.1: ADR 11 en `architecture.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
+
+---
+
+## F13: Rutinas Guardables (persistencia real de rutinas generadas por IA) [ ]
+
+> Cierra un hallazgo crítico: el chat AFIRMA haber guardado una rutina cuando se le pide, pero es una alucinación del LLM (verificado por grep: cero mecanismo de persistencia). `training.workout_sessions`/`workout_sets` solo registran sesiones ya ejecutadas, nunca hubo una plantilla reutilizable guardable.
+> **AC de Fase:** tabla `training.routines` (JSONB) con RLS · botón real "Guardar rutina" en el chat (INSERT directo a Supabase, sin tocar el backend) · el `reply` del chat deja de depender del LLM (texto determinista, nunca alucina un guardado) · Entrenamiento lista rutinas guardadas + predefinidas y precarga sets/reps/rpe al iniciar · ADR 12.
+
+### SF13.1: Esquema de rutinas guardadas (DB) [ ]
+
+#### T13.1.1: `training.routines` (JSONB) + RLS + GRANTs [ ]
+- **🧠 Explicación:** Una sola tabla con los items como `JSONB` (no una tabla relacional aparte) — no hay hoy necesidad de queries por item individual, y evita una segunda tabla + JOIN para leer/escribir la rutina completa de una vez. Mismo patrón de RLS que las demás tablas de usuario de F10.
+- **💡 Cómo hacerlo:** nuevo archivo `docker/postgres/zzzz2_routines.sql` (corre después de `zzz_auth_rls.sql` por orden alfabético):
+  ```sql
+  CREATE TABLE IF NOT EXISTS training.routines (
+      id UUID DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL,
+      name TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'ai',
+      items JSONB NOT NULL,
+      cardio_block TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+      CONSTRAINT pk_routines PRIMARY KEY (id),
+      CONSTRAINT fk_routines_users FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE,
+      CONSTRAINT chk_routines_source CHECK (source IN ('ai', 'manual'))
+  );
+
+  ALTER TABLE training.routines ENABLE ROW LEVEL SECURITY;
+  CREATE POLICY own_routines ON training.routines
+    USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+  GRANT ALL ON training.routines TO authenticated;
+  GRANT ALL ON training.routines TO anon;
+  ```
+  Montar el archivo en `docker-compose.yml` igual que `zzz_auth_rls.sql`. Requiere `docker compose down -v` para aplicar el nuevo esquema (avisar antes de ejecutarlo, igual que en F10).
+- **Acciones:**
+  - `[ ]` A13.1.1.1: Tabla `training.routines` con `items JSONB NOT NULL`.
+  - `[ ]` A13.1.1.2: RLS `auth.uid() = user_id` + `GRANT` a `authenticated`/`anon`.
+- **✅ Tests Unitarios:** verificación manual — con JWT real de un usuario A, `INSERT`/`SELECT` en `training.routines` solo devuelve/acepta sus propias filas; usuario B no ve las de A (mismo patrón de prueba que `tests/e2e/test_auth_rls_e2e.sh` de F10).
+- **🎭 Tests de Simulación de Usuario:** N/A (DB pura, cubierto por T13.2.1/T13.3.1).
+
+### SF13.2: Guardado real desde el chat + fin de la alucinación [ ]
+
+#### T13.2.1: Botón "Guardar rutina" en el chat → `INSERT` real [ ]
+- **🧠 Explicación:** El chat nunca debe depender de que el usuario "pida" el guardado en texto libre ni de que el LLM lo confirme — un botón explícito en la tarjeta de rutina dispara el `INSERT` real, con confirmación real (`SnackBar`) tras el éxito.
+- **💡 Cómo hacerlo:** en `frontend/lib/features/ai/chat_screen.dart`, `_buildWorkoutCard` recibe también el contexto para poder guardar; añadir un botón (p. ej. `TextButton.icon` con ícono de guardar) que:
+  ```dart
+  Future<void> _saveRoutine(BuildContext context, Map<String, dynamic> workout) async {
+    final nameCtrl = TextEditingController(text: 'Rutina IA ${DateTime.now().day}/${DateTime.now().month}');
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Nombra tu rutina'),
+        content: TextField(controller: nameCtrl, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    try {
+      final client = Supabase.instance.client;
+      await client.schema('training').from('routines').insert({
+        'user_id': client.auth.currentUser!.id,
+        'name': name,
+        'source': 'ai',
+        'items': workout['items'],
+        'cardio_block': workout['cardio_block'],
+      });
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Rutina guardada — ya aparece en Entrenamiento')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo guardar: $e')));
+      }
+    }
+  }
+  ```
+  Import `package:supabase_flutter/supabase_flutter.dart` en `chat_screen.dart` si no está ya.
+- **Acciones:**
+  - `[ ]` A13.2.1.1: Botón "Guardar rutina" en la tarjeta del chat.
+  - `[ ]` A13.2.1.2: Diálogo para nombrar + `INSERT` real a `training.routines` + confirmación real.
+- **✅ Tests Unitarios:** widget test — el botón existe en la tarjeta cuando `workout != null`; al pulsarlo y confirmar el nombre, se invoca el `INSERT` con el `schema('training')`/tabla/shape correctos (con Supabase mockeado o verificando la construcción de la llamada).
+- **🎭 Tests de Simulación de Usuario:** generar una rutina en el chat → pulsar "Guardar rutina" → nombrarla → ver el `SnackBar` de confirmación real (no el texto del LLM).
+
+#### T13.2.2: `reply` del chat deja de depender del LLM (fin de la alucinación) [ ]
+- **🧠 Explicación:** El bug reportado viene de pedirle al LLM "resume qué generaste" — el modelo no sabe qué se persistió de verdad y alucina una confirmación. La solución de raíz es dejar de usar el LLM para ese texto: construirlo determinísticamente en código a partir de los flags de intención ya detectados.
+- **💡 Cómo hacerlo:** en `backend/app/main.py`, dentro de `chat_plan`, reemplazar la llamada `_run_ai(req.ai, f"...Resume...")` por:
+  ```python
+  reply_parts = []
+  if workout is not None:
+      reply_parts.append("Aquí tienes tu rutina sugerida. Usa el botón 'Guardar rutina' si quieres conservarla.")
+  if meal_plan is not None:
+      reply_parts.append("Y tu plan de comidas para hoy.")
+  if not reply_parts:
+      reply_parts.append("No detecté que quisieras una rutina o un plan de comidas — cuéntame con más detalle qué necesitas.")
+  reply = " ".join(reply_parts)
+  ```
+  Esto elimina una llamada al LLM por turno (más rápido y barato) y hace estructuralmente imposible que el `reply` afirme una acción que el código no realizó.
+- **Acciones:**
+  - `[ ]` A13.2.2.1: `reply` construido en código, sin llamada al LLM, cubriendo los 3 casos (solo rutina, solo plan, ninguno).
+- **✅ Tests Unitarios:** test que cuenta las invocaciones al motor de IA mockeado en un turno con `wants_workout=True, wants_meal_plan=True` — deben ser 2 (extracción de intención + generación de rutina/plan), no 3 (ya no hay llamada de resumen); el texto de `reply` nunca contiene palabras como "guardó"/"cargó" salvo que se documente explícitamente que es una descripción de la UI (el botón), no una confirmación de una acción ya hecha.
+- **🎭 Tests de Simulación de Usuario:** cubierto por T13.2.1 (la confirmación real reemplaza a la alucinación).
+
+### SF13.3: Rutinas guardadas en Entrenamiento [ ]
+
+#### T13.3.1: Listar rutinas guardadas + precargar sets/reps/rpe al iniciar [ ]
+- **🧠 Explicación:** `workout_screen.dart` hoy solo muestra 3 rutinas predefinidas hardcodeadas (`_predefinedRoutines`) que inician una sesión vacía. Hay que traer las rutinas guardadas del usuario (`SELECT` a `training.routines`) y, al iniciar una, precargar los `sets`/`reps`/`rpe` objetivo de cada ejercicio en vez de una sesión en blanco.
+- **💡 Cómo hacerlo:** en `training_provider.dart`, un método `fetchSavedRoutines()` (`client.schema('training').from('routines').select().eq('user_id', ...)` — RLS ya filtra, pero el `.eq` es explícito y barato) que puebla una lista `List<Map<String,dynamic>> savedRoutines`; y un método nuevo `startWorkoutSessionFromRoutine(String name, List items)` que llama internamente a `startWorkoutSession(name)` y luego, por cada item, hace `addExerciseToActiveWorkout(exerciseId)` seguido de tantas llamadas a algo equivalente a `addSetToActiveExercise` como indique `sets`, pero usando `reps`/`rpe` del item en vez de los defaults (puede necesitar una pequeña variante de `addSetToActiveExercise` que acepte `reps`/`rpe` opcionales sin romper la firma existente — usa un parámetro nombrado opcional). En `workout_screen.dart`, una sección "Mis Rutinas" (junto a "Rutinas Predefinidas") listando `savedRoutines`, cuyo `onTap` llama `startWorkoutSessionFromRoutine` y navega a `ActiveWorkoutScreen` igual que las predefinidas.
+- **Acciones:**
+  - `[ ]` A13.3.1.1: `fetchSavedRoutines()` + estado en `TrainingProvider`.
+  - `[ ]` A13.3.1.2: `startWorkoutSessionFromRoutine` precarga sets/reps/rpe objetivo.
+  - `[ ]` A13.3.1.3: Sección "Mis Rutinas" en `workout_screen.dart`.
+- **✅ Tests Unitarios:** provider test — `fetchSavedRoutines` puebla el estado desde una respuesta mockeada; `startWorkoutSessionFromRoutine` crea tantos `WorkoutSet` como la suma de `sets` de todos los items, con los `reps`/`rpe` correctos por ejercicio.
+- **🎭 Tests de Simulación de Usuario:** guardar una rutina desde el chat (T13.2.1) → verla en Entrenamiento bajo "Mis Rutinas" → iniciarla → confirmar que los sets ya vienen con las reps/rpe sugeridas por la IA, no vacíos.
+
+### SF13.4: Documentación [ ]
+
+#### T13.4.1: ADR 12 en `architecture.md` + `training.routines` en `diseno_db.md` [ ]
+- **🧠 Explicación:** Documentar el hallazgo de la alucinación, la decisión de esquema (JSONB vs relacional) y de persistencia (INSERT directo vs backend), y la tabla nueva en el diccionario de DB.
+- **💡 Cómo hacerlo:** ADR 12 en `architecture.md` (contexto: alucinación descubierta por el usuario; decisión: JSONB + INSERT directo + reply determinista); nueva entrada de `training.routines` en la sección 2.3 de `diseno_db.md` (mismo formato de tabla que `workout_sessions`/`workout_sets`).
+- **Acciones:**
+  - `[ ]` A13.4.1.1: ADR 12 en `architecture.md`.
+  - `[ ]` A13.4.1.2: `training.routines` documentada en `diseno_db.md`.
+- **✅ Tests Unitarios:** N/A (docs).
+- **🎭 Tests de Simulación de Usuario:** N/A (docs).
