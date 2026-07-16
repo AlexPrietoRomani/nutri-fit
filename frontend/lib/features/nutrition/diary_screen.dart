@@ -65,14 +65,14 @@ class _DiaryScreenState extends State<DiaryScreen> {
 
   /// Muestra el borrador detectado (editable el tipo de comida) y al confirmar
   /// lo inserta en nutrition.food_logs.
-  Future<void> _showMealDraft(Map<String, dynamic> data) async {
+  Future<void> _showMealDraft(Map<String, dynamic> data, {String initialMealType = 'lunch'}) async {
     final items = (data['food_items'] as List?)?.map((e) => e.toString()).toList() ?? [];
     final foodName = items.isNotEmpty ? items.join(', ') : (data['notes']?.toString() ?? 'Comida');
     final calories = (data['calories'] as num?)?.toDouble() ?? 0;
     final protein = (data['protein'] as num?)?.toDouble() ?? 0;
     final carbs = (data['carbohydrates'] as num?)?.toDouble() ?? 0;
     final fat = (data['fat'] as num?)?.toDouble() ?? 0;
-    String mealType = 'lunch';
+    String mealType = initialMealType;
 
     await showDialog(
       context: context,
@@ -554,7 +554,23 @@ class _DiaryScreenState extends State<DiaryScreen> {
                     label: const Text('Manual', style: TextStyle(fontSize: 13)),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      side: const BorderSide(color: Color(0xFF2E302E)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    onPressed: () => _showFoodCatalogDialog(context, mealType),
+                    icon: const Icon(Icons.search_rounded, size: 18),
+                    label: const Text('Buscar en catálogo', style: TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
@@ -566,7 +582,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
                     ),
                     onPressed: () => _showBarcodeScannerDialog(context, mealType),
                     icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
-                    label: const Text('Escanear', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    label: const Text('Escanear', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
                   ),
                 ),
               ],
@@ -829,6 +845,111 @@ class _DiaryScreenState extends State<DiaryScreen> {
               child: const Text('Buscar', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  /// Diálogo "Buscar en catálogo" (T17.4.1): busca platos en
+  /// `nutrition.food_catalog` y al tocar uno reutiliza el borrador existente
+  /// (`_showMealDraft`) prellenado con sus macros para que el usuario confirme.
+  void _showFoodCatalogDialog(BuildContext context, String mealType) {
+    final controller = TextEditingController();
+    final provider = context.read<NutritionProvider>();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        List<Map<String, dynamic>> results = [];
+        bool loading = false;
+
+        return StatefulBuilder(
+          builder: (ctx, setSt) {
+            Future<void> doSearch() async {
+              setSt(() => loading = true);
+              final r = await provider.searchFoodCatalog(controller.text);
+              setSt(() {
+                results = r;
+                loading = false;
+              });
+            }
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E201E),
+              title: const Text('Buscar en catálogo', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            key: const Key('food_catalog_field'),
+                            controller: controller,
+                            autofocus: true,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: const InputDecoration(
+                              hintText: 'Ej. Lomo Saltado',
+                              hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
+                              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2E302E))),
+                            ),
+                            onSubmitted: (_) => doSearch(),
+                          ),
+                        ),
+                        IconButton(
+                          key: const Key('food_catalog_search_btn'),
+                          icon: const Icon(Icons.search_rounded, color: Color(0xFF2ED573)),
+                          onPressed: doSearch,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (loading)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2ED573))),
+                      )
+                    else if (results.isEmpty)
+                      const Text('Escribe y busca un plato.', style: TextStyle(color: Colors.grey, fontSize: 12))
+                    else
+                      Flexible(
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: results.length,
+                          itemBuilder: (_, i) {
+                            final dish = results[i];
+                            final calories = (dish['calories'] as num?)?.toDouble() ?? 0;
+                            return ListTile(
+                              key: Key('food_catalog_item_$i'),
+                              title: Text(dish['name']?.toString() ?? '', style: const TextStyle(color: Colors.white, fontSize: 14)),
+                              trailing: Text('${calories.round()} kcal', style: const TextStyle(color: Color(0xFF2ED573), fontSize: 13, fontWeight: FontWeight.bold)),
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                _showMealDraft({
+                                  'food_items': [dish['name']?.toString() ?? 'Comida'],
+                                  'calories': calories,
+                                  'protein': (dish['protein_g'] as num?)?.toDouble() ?? 0,
+                                  'carbohydrates': (dish['carbs_g'] as num?)?.toDouble() ?? 0,
+                                  'fat': (dish['fat_g'] as num?)?.toDouble() ?? 0,
+                                }, initialMealType: mealType);
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cerrar', style: TextStyle(color: Colors.grey)),
+                ),
+              ],
+            );
+          },
         );
       },
     );

@@ -24,6 +24,44 @@ class _FakeNutritionProvider extends NutritionProvider {
   List<FoodLog> getMealsOfType(String type) => type == 'lunch' ? _lunchLogs : const [];
 }
 
+// Fake para T17.4.1: mockea la búsqueda del catálogo (searchOverride es un
+// seam de método, no accesible desde el diálogo, así que se sobreescribe el
+// método) y captura los argumentos con que se dispara addFoodLog.
+class _CatalogFakeProvider extends NutritionProvider {
+  _CatalogFakeProvider(this._catalogResults);
+  final List<Map<String, dynamic>> _catalogResults;
+  Map<String, dynamic>? lastAddFoodLog;
+
+  @override
+  Future<List<Map<String, dynamic>>> searchFoodCatalog(
+    String query, {
+    Future<List<Map<String, dynamic>>> Function(String)? searchOverride,
+  }) async =>
+      _catalogResults;
+
+  @override
+  Future<bool> addFoodLog({
+    required String foodName,
+    required double calories,
+    required double proteinG,
+    required double carbsG,
+    required double fatG,
+    required double servingSizeG,
+    required String mealType,
+    required DateTime date,
+  }) async {
+    lastAddFoodLog = {
+      'foodName': foodName,
+      'calories': calories,
+      'proteinG': proteinG,
+      'carbsG': carbsG,
+      'fatG': fatG,
+      'mealType': mealType,
+    };
+    return true;
+  }
+}
+
 FoodLog _lunchLog(double calories) => FoodLog(
       userId: 'u-1',
       loggedAt: DateTime(2026, 7, 16, 13, 0),
@@ -138,6 +176,58 @@ void main() {
       expect(find.textContaining('Planificado:'), findsNothing);
       expect(find.text('Aún no registrado'), findsNothing);
       expect(find.text('En línea con el plan'), findsNothing);
+    });
+  });
+
+  group('Buscar en catálogo (T17.4.1)', () {
+    testWidgets('existe la vía "Buscar en catálogo" en la sección de comida', (tester) async {
+      final provider = _CatalogFakeProvider(const []);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<NutritionProvider>.value(
+          value: provider,
+          child: const MaterialApp(home: DiaryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(ElevatedButton, 'Buscar en catálogo'), findsWidgets);
+    });
+
+    testWidgets('elegir un plato dispara addFoodLog con sus macros', (tester) async {
+      final provider = _CatalogFakeProvider(const [
+        {'id': 1, 'name': 'Lomo Saltado', 'calories': 520, 'protein_g': 30, 'carbs_g': 45, 'fat_g': 22},
+      ]);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<NutritionProvider>.value(
+          value: provider,
+          child: const MaterialApp(home: DiaryScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Abre el diálogo de catálogo de la primera sección (Desayuno).
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Buscar en catálogo').first);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('food_catalog_field')), 'lomo');
+      await tester.tap(find.byKey(const Key('food_catalog_search_btn')));
+      await tester.pumpAndSettle();
+
+      // Toca el primer resultado → abre el borrador reutilizado.
+      await tester.tap(find.byKey(const Key('food_catalog_item_0')));
+      await tester.pumpAndSettle();
+
+      // Confirma en el borrador → dispara addFoodLog.
+      await tester.tap(find.widgetWithText(FilledButton, 'Guardar'));
+      await tester.pumpAndSettle();
+
+      expect(provider.lastAddFoodLog, isNotNull);
+      expect(provider.lastAddFoodLog!['foodName'], 'Lomo Saltado');
+      expect(provider.lastAddFoodLog!['calories'], 520.0);
+      expect(provider.lastAddFoodLog!['proteinG'], 30.0);
+      expect(provider.lastAddFoodLog!['carbsG'], 45.0);
+      expect(provider.lastAddFoodLog!['fatG'], 22.0);
+      expect(provider.lastAddFoodLog!['mealType'], 'breakfast');
     });
   });
 

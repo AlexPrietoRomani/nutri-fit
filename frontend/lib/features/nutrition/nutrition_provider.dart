@@ -307,6 +307,31 @@ class NutritionProvider extends ChangeNotifier {
     }
   }
 
+  /// Busca platos en `nutrition.food_catalog` por nombre (T17.4.1).
+  ///
+  /// [searchOverride] es el seam de test (patrón INC-015): evita instanciar un
+  /// `SupabaseClient` real. Devuelve `[]` ante error o query vacía.
+  Future<List<Map<String, dynamic>>> searchFoodCatalog(
+    String query, {
+    Future<List<Map<String, dynamic>>> Function(String)? searchOverride,
+  }) async {
+    if (query.trim().isEmpty) return [];
+    try {
+      if (searchOverride != null) {
+        return await searchOverride(query);
+      }
+      final data = await _client
+          .schema('nutrition')
+          .from('food_catalog')
+          .select()
+          .ilike('name', '%$query%')
+          .limit(30);
+      return List<Map<String, dynamic>>.from(data);
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<Map<String, dynamic>?> searchBarcode(String barcode) async {
     _isLoading = true;
     _errorMessage = null;

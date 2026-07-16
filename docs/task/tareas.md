@@ -1148,25 +1148,25 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** 30 min/5 km > 20 min/2 km en kcal; correr > caminar en MET; sesión de solo fuerza no cae a 0.
 - **🎭 Tests de Simulación de Usuario:** registrar "Running, Treadmill" 30 min/5 km → kcal coherentes y distintas a 20 min/2 km.
 
-### SF17.3: Búsqueda y filtro de ejercicios por músculo [ ]
+### SF17.3: Búsqueda y filtro de ejercicios por músculo [X]
 
-#### T17.3.1: Box de búsqueda + filtro por músculo en "Agregar ejercicio" [ ]
+#### T17.3.1: Box de búsqueda + filtro por músculo en "Agregar ejercicio" [X]
 - **🧠 Explicación:** `_showAddExerciseModal` lista 873 ejercicios sin buscador. Los datos ya permiten filtrar: `name`, `bodyPart`, `secondaryMuscles` (tags). Frontend puro sobre `provider.exercises`.
 - **💡 Cómo hacerlo:** un `TextField` de búsqueda + filtro por músculo (`FilterChip`/dropdown de `body_part` distintos); el `ListView` filtra por `name.contains(query)` y/o `bodyPart == muscle || secondaryMuscles.contains(muscle)`. Mostrar `secondaryMuscles` como chips en cada `ListTile`. Mantener miniatura/detalle.
 - **Acciones:**
-  - `[ ]` A17.3.1.1: `TextField` de búsqueda por nombre.
-  - `[ ]` A17.3.1.2: Filtro por músculo + tags visibles por ejercicio.
+  - `[X]` A17.3.1.1: `TextField` de búsqueda por nombre.
+  - `[X]` A17.3.1.2: Filtro por músculo (FilterChip de body_part + "Todos") + tags de secondary_muscles por ejercicio.
 - **✅ Tests Unitarios:** query "press" → solo lo que matchea; filtro "chest" → solo pecho.
 - **🎭 Tests de Simulación de Usuario:** buscar "running" → aparece el cardio; filtrar "chest" → solo pecho.
 
-### SF17.4: Catálogo de comida en el Diario [ ]
+### SF17.4: Catálogo de comida en el Diario [X]
 
-#### T17.4.1: Buscador de `food_catalog` al agregar comida [ ]
+#### T17.4.1: Buscador de `food_catalog` al agregar comida [X]
 - **🧠 Explicación:** Además de manual/cámara/escáner, un buscador contra el catálogo curado peruano que prellena nombre+macros.
 - **💡 Cómo hacerlo:** en `nutrition_provider.dart`, `searchFoodCatalog(query)` → `client.schema('nutrition').from('food_catalog').select().ilike('name','%q%')`. En `diary_screen.dart`, opción "Buscar en catálogo" → al elegir, prellena el diálogo de borrador existente (el de la cámara IA) → `addFoodLog`. Reusar el diálogo, no crear uno nuevo.
 - **Acciones:**
-  - `[ ]` A17.4.1.1: `searchFoodCatalog` en el provider.
-  - `[ ]` A17.4.1.2: Buscador en el Diario que prellena macros → `addFoodLog`.
+  - `[X]` A17.4.1.1: `searchFoodCatalog` en el provider (ilike, seam de test).
+  - `[X]` A17.4.1.2: Vía "Buscar en catálogo" que reusa el borrador existente → `addFoodLog`. Verificado: 14/14 archivos, build web OK.
 - **✅ Tests Unitarios:** `searchFoodCatalog` arma la query `ilike` correcta (seam mockeado); elegir un resultado prellena el borrador.
 - **🎭 Tests de Simulación de Usuario:** buscar "arroz con pollo" → prellena macros → guardar → aparece en el día.
 

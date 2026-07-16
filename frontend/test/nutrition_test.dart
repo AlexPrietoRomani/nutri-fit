@@ -113,6 +113,43 @@ void main() {
     });
   });
 
+  group('NutritionProvider.searchFoodCatalog (T17.4.1)', () {
+    test('con searchOverride devuelve la lista mockeada', () async {
+      final provider = NutritionProvider();
+      final dishes = [
+        {'id': 1, 'name': 'Lomo Saltado', 'calories': 520, 'protein_g': 30, 'carbs_g': 45, 'fat_g': 22},
+      ];
+
+      final result = await provider.searchFoodCatalog('lomo', searchOverride: (q) async {
+        expect(q, 'lomo');
+        return dishes;
+      });
+
+      expect(result, dishes);
+    });
+
+    test('query vacía devuelve [] sin invocar el override', () async {
+      final provider = NutritionProvider();
+      var called = false;
+
+      final result = await provider.searchFoodCatalog('  ', searchOverride: (q) async {
+        called = true;
+        return [{'name': 'x'}];
+      });
+
+      expect(result, isEmpty);
+      expect(called, isFalse);
+    });
+
+    test('error en el override devuelve [] sin lanzar', () async {
+      final provider = NutritionProvider();
+
+      final result = await provider.searchFoodCatalog('lomo', searchOverride: (_) async => throw Exception('boom'));
+
+      expect(result, isEmpty);
+    });
+  });
+
   group('UserGoals serialización', () {
     test('fromJson mapea metas y macros', () {
       final goals = UserGoals.fromJson({
