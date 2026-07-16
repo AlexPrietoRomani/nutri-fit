@@ -116,6 +116,19 @@ Database: nutri-fit
 | `rpe` | `REAL` | | Esfuerzo percibido (1.0 - 10.0) |
 | `completed` | `BOOLEAN` | `DEFAULT TRUE` | Marcar si se realizó la serie |
 
+#### Tabla: `training.routines`
+> Rutinas guardadas por el usuario (generadas por IA o manuales) — plantilla reutilizable con sets/reps/rpe *objetivo*, distinta de `workout_sessions`/`workout_sets` que registran sesiones ya ejecutadas. Añadida en F13 para cerrar el hallazgo de que el chat afirmaba guardar rutinas sin que existiera ningún mecanismo real. Ver ADR 12 en `architecture.md`.
+
+| Columna | Tipo | Restricción | Descripción |
+|---|---|---|---|
+| `id` | `UUID` | `PK, DEFAULT gen_random_uuid()` | ID de la rutina |
+| `user_id` | `UUID` | `FK -> public.users.id ON DELETE CASCADE` | Dueño (RLS `auth.uid() = user_id`) |
+| `name` | `TEXT` | `NOT NULL` | Nombre elegido por el usuario al guardar |
+| `source` | `TEXT` | `NOT NULL DEFAULT 'ai'`, `CHECK IN ('ai','manual')` | Origen de la rutina |
+| `items` | `JSONB` | `NOT NULL` | `[{exercise_id, name, sets, reps, rpe}]` — sin tabla relacional aparte, no hay hoy necesidad de queries por item individual |
+| `cardio_block` | `TEXT` | | Bloque de cardio en texto libre (p. ej. caminadora), si aplica |
+| `created_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Fecha de guardado |
+
 ---
 
 ## 3. Seguridad de Acceso (RLS)
