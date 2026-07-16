@@ -1003,9 +1003,9 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 > Pasa de "solo registrar" a "planificar + comparar contra lo real": plan de comidas y rutina por defecto, comparación planificado-vs-real en el Diario, sección "Plan de Hoy" en el Dashboard, y escáner de código de barras real por cámara. `TrainingProvider.todayCaloriesBurned` (F6) YA calcula el gasto calórico desde sesiones completadas reales — no se toca.
 > **AC de Fase:** `nutrition.meal_plans` (JSONB, RLS) + `is_default` en `meal_plans`/`training.routines` con índice único parcial · botón "Guardar plan" en el chat · marcar/desmarcar predeterminado · comparación planificado-vs-real en el Diario · "Plan de Hoy" en el Dashboard · `mobile_scanner` real · ADR 14.
 
-### SF16.1: Esquema (DB) [ ]
+### SF16.1: Esquema (DB) [X]
 
-#### T16.1.1: `nutrition.meal_plans` + `is_default` en ambas tablas [ ]
+#### T16.1.1: `nutrition.meal_plans` + `is_default` en ambas tablas [X]
 - **🧠 Explicación:** `nutrition.meal_plans` es al Diario lo que `training.routines` (F13) es a Entrenamiento: una plantilla guardable, no un registro de lo que ya pasó. `is_default` (con índice único parcial) permite marcar "el plan/rutina de hoy" sin ambigüedad, garantizado a nivel de DB.
 - **💡 Cómo hacerlo:** nuevo archivo `docker/postgres/zzzz3_meal_plans.sql` (corre después de `zzzz2_routines.sql`):
   ```sql
@@ -1032,29 +1032,29 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   ```
   Revisa el patrón real de `GRANT`/RLS ya usado en `zzzz2_routines.sql` (F13) para no desviarte (p. ej. si ahí NO se dio `GRANT` a `anon`, sigue el mismo criterio aquí).
 - **Acciones:**
-  - `[ ]` A16.1.1.1: `nutrition.meal_plans` (JSONB `meals`) + RLS + `GRANT`.
-  - `[ ]` A16.1.1.2: `is_default` + índice único parcial en `meal_plans` y en `training.routines` (`ALTER TABLE`).
+  - `[X]` A16.1.1.1: `nutrition.meal_plans` (JSONB `meals`) + RLS + `GRANT`.
+  - `[X]` A16.1.1.2: `is_default` + índice único parcial en `meal_plans` y en `training.routines` (`ALTER TABLE`). Verificado con JWT reales: 12/12 PASS, incluyendo el índice único rechazando un segundo default (409/23505).
 - **✅ Tests Unitarios:** verificación manual con JWT reales (extender `tests/e2e/test_auth_rls_e2e.sh`, mismo patrón AC6-AC8 de F13) — aislamiento de `meal_plans` por usuario; intentar marcar dos filas como `is_default=true` para el mismo usuario en la misma tabla debe fallar por el índice único (o la app debe desmarcar la anterior antes de marcar la nueva — cubrir ambos: la protección de DB Y el flujo de "solo una a la vez" desde la app en T16.2.2).
 - **🎭 Tests de Simulación de Usuario:** N/A (DB pura, cubierto por T16.2.x).
 
-### SF16.2: Guardar y marcar predeterminado [ ]
+### SF16.2: Guardar y marcar predeterminado [X]
 
-#### T16.2.1: Botón "Guardar plan" en la tarjeta de plan de comida del chat [ ]
+#### T16.2.1: Botón "Guardar plan" en la tarjeta de plan de comida del chat [X]
 - **🧠 Explicación:** Mismo patrón exacto que "Guardar rutina" (F13, `chat_screen.dart`) pero para `nutrition.meal_plans`. El chat ya genera `meal_plan` vía `/chat-plan` (F11) y ya lo muestra en `_buildMealPlanCard` — solo falta la acción de guardado real.
 - **💡 Cómo hacerlo:** en `chat_screen.dart`, análogo a `_saveRoutine`, un `_saveMealPlan(BuildContext, Map mealPlan)` con diálogo de nombre → `INSERT` a `nutrition.meal_plans` (`meals: mealPlan['meals']`) → `SnackBar` real. Añadir el botón junto al título "Plan de comidas" en `_buildMealPlanCard`, mismo estilo que el de rutina.
 - **Acciones:**
-  - `[ ]` A16.2.1.1: Botón "Guardar plan" en `_buildMealPlanCard`.
-  - `[ ]` A16.2.1.2: Diálogo de nombre + `INSERT` real a `nutrition.meal_plans` + confirmación.
-- **✅ Tests Unitarios:** widget test — el botón existe cuando `mealPlan != null`; al confirmar el nombre, arma el `INSERT` con `schema('nutrition')`/tabla/shape correctos (mismo seam inyectable de INC-015 usado para `_saveRoutine`, reusarlo aquí en vez de reinventarlo).
+  - `[X]` A16.2.1.1: Botón "Guardar plan" en `_buildMealPlanCard`.
+  - `[X]` A16.2.1.2: Diálogo de nombre + `INSERT` real a `nutrition.meal_plans` + confirmación.
+- **✅ Tests Unitarios:** widget test — el botón existe cuando `mealPlan != null`; al confirmar el nombre, arma el `INSERT` con `schema('nutrition')`/tabla/shape correctos. Verificado: 59/59 tests.
 - **🎭 Tests de Simulación de Usuario:** generar un plan de comida en el chat → "Guardar plan" → nombrarlo → confirmación real.
 
-#### T16.2.2: Marcar/desmarcar predeterminado (rutinas y planes de comida) [ ]
+#### T16.2.2: Marcar/desmarcar predeterminado (rutinas y planes de comida) [X]
 - **🧠 Explicación:** Un usuario puede tener varias rutinas/planes guardados pero solo UNO puede ser "el de hoy". Marcar uno nuevo debe desmarcar el anterior (evita depender solo del índice único de DB para la UX — un `UPDATE` que falle por el índice sería una mala experiencia si no se maneja).
 - **💡 Cómo hacerlo:** en `TrainingProvider`, un método `setDefaultRoutine(routineId)` que hace, en la práctica, dos `UPDATE`: desmarcar cualquier fila `is_default=true` del usuario en `training.routines`, luego marcar la elegida (o un solo `UPDATE ... SET is_default = (id = :elegido)` si Postgres/PostgREST lo permite en una sola llamada — usa tu criterio, prioriza que quede exactamente una marcada). Análogo `setDefaultMealPlan(planId)` en `NutritionProvider` sobre `nutrition.meal_plans`. En `workout_screen.dart` ("Mis Rutinas") y en una nueva sección "Mis Planes de Comida" en `diary_screen.dart` (listar `nutrition.meal_plans` del usuario, mismo patrón visual que "Mis Rutinas"), un ícono/botón (p. ej. `Icons.star`/`Icons.star_border`) por ítem que llama el método correspondiente y refresca la lista.
 - **Acciones:**
-  - `[ ]` A16.2.2.1: `setDefaultRoutine`/`fetchMealPlans`/`setDefaultMealPlan` en los providers correspondientes.
-  - `[ ]` A16.2.2.2: Acción de marcar/desmarcar en "Mis Rutinas" y nueva sección "Mis Planes de Comida" en el Diario.
-- **✅ Tests Unitarios:** provider test — marcar un ítem como default dentro de una lista con otro ya marcado deja exactamente uno marcado (el nuevo); desmarcar dificulta que quede alguno si no se elige otro (según el criterio que implementes, documentarlo).
+  - `[X]` A16.2.2.1: `setDefaultRoutine`/`fetchMealPlans`/`setDefaultMealPlan` en los providers correspondientes.
+  - `[X]` A16.2.2.2: Acción de marcar/desmarcar en "Mis Rutinas" y nueva sección "Mis Planes de Comida" en el Diario.
+- **✅ Tests Unitarios:** provider test — marcar un ítem como default dentro de una lista con otro ya marcado deja exactamente uno marcado (el nuevo). Verificado: 59/59 tests, sin regresión (2 incidentes reales encontrados y corregidos: INC-017 constructor eager de Supabase, INC-018 ExpansionTile sin Material intermedio).
 - **🎭 Tests de Simulación de Usuario:** con 2+ rutinas/planes guardados, marcar uno como predeterminado → el anterior se desmarca automáticamente → se refleja en el Dashboard (T16.5.1).
 
 ### SF16.3: Comparación planificado vs real (Diario) [ ]
