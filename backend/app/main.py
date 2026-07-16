@@ -7,12 +7,23 @@ from pydantic import BaseModel, Field
 import httpx
 import psycopg2
 
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.ai_engine import AIConfig, generate as ai_generate, AIEngineError
 
 app = FastAPI(
     title="Nutri-Fit AI Backend",
     description="Microservicio de IA en Python para el procesamiento de imágenes de comidas y reconocimiento de máquinas.",
     version="0.1.0"
+)
+
+# CORS: el frontend web (Flutter en otro puerto) llama a este servicio cross-origin.
+# En dev permitimos cualquier origen; en prod restringir a los dominios de la app.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Configuración desde variables de entorno

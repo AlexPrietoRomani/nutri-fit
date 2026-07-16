@@ -34,14 +34,24 @@ class AiProvider extends ChangeNotifier {
   String? get error => _error;
 
   Future<void> loadConfig() async {
-    _config = await _store.load();
+    // El almacenamiento seguro puede no estar disponible en web; degradar sin crash.
+    try {
+      _config = await _store.load();
+    } catch (_) {
+      _config = null;
+    }
     notifyListeners();
   }
 
   Future<void> saveConfig(AIConfig config) async {
-    await _store.save(config);
+    // Config en memoria primero: la UI funciona aunque falle la persistencia (web).
     _config = config;
     notifyListeners();
+    try {
+      await _store.save(config);
+    } catch (_) {
+      // best-effort: en web sin secure storage la config vive solo en memoria.
+    }
   }
 
   /// Envía un mensaje al endpoint /chat con la config del proveedor.
