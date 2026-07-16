@@ -4,6 +4,81 @@ Registro forense de bugs, bloqueos y refactors. Formato: síntoma → hipótesis
 
 ---
 
+## 2026-07-16 · INC-018 · `DiaryScreen` monta `ExpansionTile` sin `Material` intermedio — invisible ink splash warning (T16.2.2, F16)
+
+### 1. Síntoma Observado / Reporte
+- **Entorno:** Local (widget test de Flutter, `flutter test test/diary_screen_test.dart`).
+- Al escribir el primer widget test que monta `DiaryScreen` completo (no existía ninguno antes de T16.2.2), el framework lanzaba 6 `AssertionError` reales durante el build, uno por cada `ExpansionTile` de `_buildMealSection`:
+```
+The following assertion was thrown:
+ListTile background color or ink splashes may be invisible.
+The ListTile is wrapped in a DecoratedBox that has a background color. Because ListTile paints its
+background and ink splashes on the nearest Material ancestor, this DecoratedBox will hide those
+effects.
+ListTile: ListTile(onTap: Closure: () => void from Function 'collapse':., enableFeedback: true)
+DecoratedBox: DecoratedBox(bg: BoxDecoration(color: Color(0xFF1E201E), border: Border.all(...), borderRadius: BorderRadius.circular(16.0)))
+```
+- El propio `expect()` del test (buscar la sección "Mis Planes de Comida") pasaba una vez resuelto el problema de scroll (ver más abajo), pero el test seguía marcado en rojo por "Multiple exceptions (N) were detected... at least one was unexpected".
+
+### 2. Hipótesis de Diagnóstico
+1. El `expect()` fallaba porque la sección nueva no se renderizaba — **descartada**: tras agregar `tester.scrollUntilVisible` (el `ListView` de `DiaryScreen` no construye eagerly los hijos fuera del viewport de test, ~800x600), el finder encontraba el texto sin problema; las excepciones de framework persistían igual, independientes del scroll.
+2. Las advertencias eran ruido inofensivo que no debía fallar el test — **descartada**: `TestWidgetsFlutterBinding` cuenta cualquier `AssertionError` no capturado localmente como "unexpected exception" y marca el test en rojo al finalizar, aunque todos los `expect()` hayan pasado.
+3. El `Container` con `BoxDecoration` que envuelve cada `ExpansionTile` en `_buildMealSection` se interpone entre el `Material` del `Scaffold` y el `ListTile` interno del `ExpansionTile` (el header colapsable) — **confirmada**: es exactamente el patrón que describe el mensaje del framework (`DecoratedBox` entre `ListTile` y su ancestro `Material` más cercano).
+
+### 3. Causa Raíz
+`_buildMealSection` en `frontend/lib/features/nutrition/diary_screen.dart` envolvía el `ExpansionTile` directamente en un `Container(decoration: BoxDecoration(color: ..., border: ...))`. `ExpansionTile` renderiza internamente un `ListTile` para su cabecera; ese `ListTile` pinta su fondo/splash de tinta sobre el `Material` ancestro más cercano — pero el `Container` decorado (que se comporta como un `DecoratedBox` opaco) se interpone en el medio, ocultando esos efectos. El framework lo detecta con un `assert()` en modo debug. El bug ya existía en el widget de producción desde antes de F16, pero nunca se había manifestado porque no existía ningún widget test que montara `DiaryScreen` completo hasta que T16.2.2 lo requirió para verificar la sección "Mis Planes de Comida".
+
+### 4. Resolución e Implementación
+Se envolvió el `ExpansionTile` en un `Material(type: MaterialType.transparency, child: ExpansionTile(...))` dentro del `Container` ya existente, en `frontend/lib/features/nutrition/diary_screen.dart` (método `_buildMealSection`). `MaterialType.transparency` no pinta ningún fondo propio — solo restablece el ancestro `Material` más cercano para que el `ListTile` interno pinte correctamente su splash — así que el aspecto visual (colores, bordes, radios ya definidos en el `Container`) no cambia.
+
+### 5. Verificación y Mediciones
+- `flutter test test/diary_screen_test.dart` pasó de "Some tests failed" (6 `AssertionError` + 1 `TestFailure` real de scroll) a `00:00 +1: All tests passed!` sin ninguna excepción de framework.
+- Se corrió el resto de la suite (`test/*.dart` uno por uno, patrón ya documentado en esta máquina) tras el fix: 59 tests en total, todos en verde, sin regresión frente a la baseline de 51 tests de esta rama antes de T16.2.1/T16.2.2.
+- `flutter analyze` no reporta ningún error nuevo (solo los `info`/`warning` preexistentes de `deprecated_member_use`/`use_build_context_synchronously` ya presentes antes de este cambio). `flutter build web` compila limpio.
+
+### 6. Lecciones Aprendidas (Retroalimentación)
+Cualquier `Container`/`DecoratedBox` con color de fondo que envuelva un `ListTile`/`ExpansionTile`/`InkWell` debe llevar un `Material(type: MaterialType.transparency)` intermedio si no hay ya un ancestro `Material` "limpio" entre ambos — el framework lo señala con un `assert()` propio en modo debug, pero solo se dispara cuando el widget se monta realmente en un test o en la app; un widget de producción puede llevar años con este defecto latente sin que nadie lo note hasta el primer widget test que lo monta completo. Al escribir el primer test de un `Screen` ya existente, tratar cualquier `AssertionError` nueva del framework (no solo los `expect()` fallidos) como una señal real a corregir, no como ruido a silenciar.
+
+## 2026-07-16 · INC-017 · `NutritionProvider()` resuelve `SupabaseConfig.client` de forma eager en el constructor — rompe cualquier test que no llame `Supabase.initialize()` (T16.2.2, F16)
+
+### 1. Síntoma Observado / Reporte
+- **Entorno:** Local (`flutter test test/nutrition_test.dart`, `frontend/`).
+- Al escribir los tests nuevos de `fetchMealPlans`/`setDefaultMealPlan` (T16.2.2), que usan los seams inyectables `fetchOverride`/`setDefaultOverride` (mismo patrón que `TrainingProvider.fetchSavedRoutines`, ver INC-015) y nunca deberían tocar un `SupabaseClient` real, el simple `final provider = NutritionProvider();` ya fallaba:
+```
+'package:supabase_flutter/src/supabase.dart': Failed assertion: line 45 pos 7: '_instance._isInitialized':
+You must initialize the supabase instance before calling Supabase.instance
+  package:supabase_flutter/src/supabase.dart 45:7   Supabase.instance
+  package:nutrifit/core/supabase_config.dart 16:48  SupabaseConfig.client
+  package:nutrifit/features/nutrition/nutrition_provider.dart 97:84  new NutritionProvider
+```
+
+### 2. Hipótesis de Diagnóstico
+1. El seam `fetchOverride`/`setDefaultOverride` estaba mal cableado y de todos modos intentaba pegarle al cliente real — **descartada**: el stack trace apunta al *constructor* (`new NutritionProvider`), antes de que el test llegue siquiera a invocar `fetchMealPlans`.
+2. Falta un `Supabase.initialize()` en el `setUp` del test — **descartada como solución**: instanciar `Supabase.initialize()` real en un widget test cuelga el proceso indefinidamente en este entorno (INC-015); no es una opción viable, el objetivo explícito del seam inyectable es evitarlo.
+3. `NutritionProvider({SupabaseClient? client}) : _client = client ?? SupabaseConfig.client;` resuelve el fallback `SupabaseConfig.client` en el *initializer list* del constructor, que se ejecuta siempre e incondicionalmente al construir la instancia, sin importar si `_client` llega a usarse alguna vez — **confirmada**: es exactamente lo que dispara el `assert` de `Supabase.instance` antes de que el test haga nada más.
+
+### 3. Causa Raíz
+A diferencia de `TrainingProvider`, que no tiene estado de cliente en el constructor y resuelve `SupabaseConfig.client` de forma perezosa dentro de cada método (`fetchExercises`, `startWorkoutSession`, etc.), `NutritionProvider` fue escrito con inyección de dependencia por constructor (`SupabaseClient? client`) pero evaluando el *fallback* de forma eager en el initializer (`_client = client ?? SupabaseConfig.client`). Dart evalúa los initializers de un constructor de forma síncrona e incondicional al construir el objeto — así que cualquier `NutritionProvider()` sin `client` explícito dispara `SupabaseConfig.client` → `Supabase.instance` inmediatamente, aunque el resto del objeto nunca use `_client` (p. ej. porque todas las llamadas usan `fetchOverride`/`setDefaultOverride`). Esto rompe el patrón de seam ya establecido por INC-015 para exactamente este escenario.
+
+### 4. Resolución e Implementación
+En `frontend/lib/features/nutrition/nutrition_provider.dart`, se cambió el campo `final SupabaseClient _client` (resuelto eager) por:
+```dart
+final SupabaseClient? _clientOverride;
+NutritionProvider({SupabaseClient? client}) : _clientOverride = client;
+SupabaseClient get _client => _clientOverride ?? SupabaseConfig.client;
+```
+El getter perezoso solo evalúa `SupabaseConfig.client` en el momento real de acceso (dentro de `loadDailyData`, `addFoodLog`, `deleteFoodLog`, `searchBarcode`, o en las ramas sin override de `fetchMealPlans`/`setDefaultMealPlan`), nunca en la construcción del objeto.
+
+### 5. Verificación y Mediciones
+- `flutter test test/nutrition_test.dart`: pasó de fallar en el constructor (`new NutritionProvider`) a `00:00 +8: All tests passed!`, incluyendo los 3 tests nuevos de `fetchMealPlans`/`setDefaultMealPlan` con seams inyectados y sin instanciar `SupabaseClient` real.
+- Resto de la suite (`test/*.dart` completa, archivo por archivo): 59/59 tests en verde, sin regresión frente a los 51 tests previos a T16.2.1/T16.2.2 en esta rama.
+- `flutter analyze`/`flutter build web` limpios (sin errores nuevos).
+
+### 6. Lecciones Aprendidas (Retroalimentación)
+Cualquier provider con un parámetro `client`/`override` opcional debe resolver su fallback de forma perezosa (getter, evaluado en el punto de uso), nunca en el *initializer list* del constructor — un initializer se ejecuta siempre, incondicionalmente, exista o no una ruta de código que evite tocar el recurso real. Este es el mismo guardarraíl que ya motivó los seams `fetchOverride`/`saveRoutineOverride` de INC-015, pero aplicado un nivel más arriba: no solo las *llamadas* a `SupabaseClient` deben ser evitables en test, la *construcción* del propio provider también debe serlo.
+
+---
+
 ## 2026-07-16 · INC-016 · Gateway 502 tras `docker compose up` recrear `auth` (variante de INC-009/010, sin `down -v`) — T14.1.1, F14
 
 - **Severidad:** Media (bloqueaba la verificación, no el código) · **Estado:** RESUELTO

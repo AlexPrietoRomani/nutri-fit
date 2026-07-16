@@ -8,7 +8,7 @@ import 'ai_settings_screen.dart';
 
 /// Pantalla de chat con el asistente de IA.
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, this.embedded = false, this.saveRoutineOverride});
+  const ChatScreen({super.key, this.embedded = false, this.saveRoutineOverride, this.saveMealPlanOverride});
 
   /// true cuando se abre dentro de un [showModalBottomSheet] (ChatFab).
   final bool embedded;
@@ -18,6 +18,9 @@ class ChatScreen extends StatefulWidget {
   /// entorno de test se cuelga al spawnear el isolate. En producción se usa
   /// el INSERT real contra `training.routines` vía [SupabaseConfig.client].
   final Future<void> Function(String name, Map<String, dynamic> workout)? saveRoutineOverride;
+
+  /// Mismo seam que [saveRoutineOverride] pero para `nutrition.meal_plans`.
+  final Future<void> Function(String name, Map<String, dynamic> mealPlan)? saveMealPlanOverride;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -314,6 +317,57 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// Guarda el plan de comida sugerido en `nutrition.meal_plans` (T16.2.1),
+  /// mismo patrón que [_saveRoutine] para `training.routines`.
+  Future<void> _saveMealPlan(Map<String, dynamic> mealPlan) async {
+    final now = DateTime.now();
+    final nameCtrl = TextEditingController(text: "Plan IA ${now.day}/${now.month}");
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Guardar plan'),
+        content: TextField(
+          key: const Key('save_meal_plan_name_field'),
+          controller: nameCtrl,
+          decoration: const InputDecoration(labelText: 'Nombre del plan'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(
+            key: const Key('save_meal_plan_confirm_button'),
+            onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+
+    try {
+      if (widget.saveMealPlanOverride != null) {
+        await widget.saveMealPlanOverride!(name, mealPlan);
+      } else {
+        final client = SupabaseConfig.client;
+        final userId = client.auth.currentUser!.id;
+        await client.schema('nutrition').from('meal_plans').insert({
+          'user_id': userId,
+          'name': name,
+          'source': 'ai',
+          'meals': mealPlan['meals'],
+        });
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Plan guardado — ya aparece en Nutrición')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo guardar el plan: $e')),
+      );
+    }
+  }
+
   Widget _buildMealPlanCard(Map<String, dynamic> mealPlan) {
     final meals = (mealPlan['meals'] as List?) ?? [];
     return Card(
@@ -328,10 +382,22 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Text('Plan de comidas',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Plan de comidas',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                  TextButton.icon(
+                    key: const Key('save_meal_plan_button'),
+                    style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 0)),
+                    icon: const Icon(Icons.save_outlined, size: 18, color: Color(0xFF2ED573)),
+                    label: const Text('Guardar plan', style: TextStyle(color: Color(0xFF2ED573))),
+                    onPressed: () => _saveMealPlan(mealPlan),
+                  ),
+                ],
+              ),
             ),
             for (final meal in meals)
               ListTile(

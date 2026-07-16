@@ -72,6 +72,19 @@ Database: nutri-fit
 | `serving_size_g` | `REAL` | `NOT NULL` | Porción en gramos |
 | `created_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Fecha de cacheo |
 
+#### Tabla: `nutrition.meal_plans`
+> Planes de comida guardables (generados por IA o manuales) — plantilla reutilizable con comidas planificadas, distinta de `food_logs` que registra lo realmente comido. Añadida en F16 (mirror de `training.routines`). RLS `auth.uid() = user_id`. Ver ADR 14 en `architecture.md`.
+
+| Columna | Tipo | Restricción | Descripción |
+|---|---|---|---|
+| `id` | `UUID` | `PK, DEFAULT gen_random_uuid()` | ID del plan |
+| `user_id` | `UUID` | `FK -> public.users.id ON DELETE CASCADE` | Dueño (RLS `auth.uid() = user_id`) |
+| `name` | `TEXT` | `NOT NULL` | Nombre elegido al guardar |
+| `source` | `TEXT` | `NOT NULL DEFAULT 'ai'`, `CHECK IN ('ai','manual')` | Origen del plan |
+| `meals` | `JSONB` | `NOT NULL` | `[{meal_type, food_name, calories, protein_g, carbs_g, fat_g, serving_size_g}]` — sin tabla relacional aparte |
+| `is_default` | `BOOLEAN` | `NOT NULL DEFAULT FALSE` | Plan "de hoy". Índice único parcial `uq_meal_plans_default_per_user (user_id) WHERE is_default` → máximo uno por usuario |
+| `created_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Fecha de guardado |
+
 ---
 
 ### 2.3. Esquema: `training` (Módulo Strong/LiftLog)
@@ -127,6 +140,7 @@ Database: nutri-fit
 | `source` | `TEXT` | `NOT NULL DEFAULT 'ai'`, `CHECK IN ('ai','manual')` | Origen de la rutina |
 | `items` | `JSONB` | `NOT NULL` | `[{exercise_id, name, sets, reps, rpe}]` — sin tabla relacional aparte, no hay hoy necesidad de queries por item individual |
 | `cardio_block` | `TEXT` | | Bloque de cardio en texto libre (p. ej. caminadora), si aplica |
+| `is_default` | `BOOLEAN` | `NOT NULL DEFAULT FALSE` | Rutina "de hoy" (añadida en F16). Índice único parcial `uq_routines_default_per_user (user_id) WHERE is_default` → máximo una por usuario |
 | `created_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Fecha de guardado |
 
 ---

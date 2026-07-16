@@ -178,6 +178,15 @@ class TrainingProvider extends ChangeNotifier {
   DateTime? get activeStartTime => _activeStartTime;
   List<Map<String, dynamic>> get savedRoutines => List.unmodifiable(_savedRoutines);
 
+  /// Rutina marcada como predeterminada (`is_default == true`), o `null` si no
+  /// hay ninguna. Análogo a `NutritionProvider.defaultMealPlan` (T16.5.1).
+  Map<String, dynamic>? get defaultRoutine {
+    for (final routine in _savedRoutines) {
+      if (routine['is_default'] == true) return routine;
+    }
+    return null;
+  }
+
   /// Carga las rutinas guardadas por el usuario (`training.routines`).
   ///
   /// [fetchOverride] permite inyectar la respuesta en tests sin levantar un
@@ -202,6 +211,50 @@ class TrainingProvider extends ChangeNotifier {
     } catch (e) {
       _errorMessage = e.toString();
     } finally {
+      notifyListeners();
+    }
+  }
+
+  /// Marca [routineId] como predeterminada (`training.routines.is_default`),
+  /// desmarcando primero cualquier otra rutina que ya lo fuera del usuario
+  /// (índice único parcial en DB solo permite una a la vez), y refresca
+  /// [savedRoutines].
+  ///
+  /// [setDefaultOverride]/[fetchOverride] permiten inyectar el flujo en tests
+  /// sin `SupabaseClient` real (mismo seam que [fetchSavedRoutines], ver
+  /// INC-015 en docs/logs/log.md).
+  Future<void> setDefaultRoutine(
+    String routineId, {
+    Future<void> Function()? setDefaultOverride,
+    Future<List<Map<String, dynamic>>> Function()? fetchOverride,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      if (setDefaultOverride != null) {
+        await setDefaultOverride();
+      } else {
+        final client = SupabaseConfig.client;
+        final userId = client.auth.currentUser!.id;
+        await client
+            .schema('training')
+            .from('routines')
+            .update({'is_default': false})
+            .eq('user_id', userId)
+            .eq('is_default', true);
+        await client
+            .schema('training')
+            .from('routines')
+            .update({'is_default': true})
+            .eq('id', routineId);
+      }
+      await fetchSavedRoutines(fetchOverride: fetchOverride);
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      _isLoading = false;
       notifyListeners();
     }
   }

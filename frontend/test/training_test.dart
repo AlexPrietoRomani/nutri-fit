@@ -196,6 +196,46 @@ void main() {
     });
   });
 
+  group('TrainingProvider.setDefaultRoutine (T16.2.2)', () {
+    // Mismo seam que fetchSavedRoutines: no se instancia SupabaseClient real
+    // (INC-015). setDefaultOverride simula el UPDATE desmarcar-luego-marcar;
+    // fetchOverride simula el refresh posterior.
+    test('marcar otra rutina deja exactamente una is_default=true tras refrescar', () async {
+      final provider = TrainingProvider();
+      final backend = [
+        {'id': 'r1', 'name': 'Rutina A', 'items': [], 'is_default': true},
+        {'id': 'r2', 'name': 'Rutina B', 'items': [], 'is_default': false},
+      ];
+
+      await provider.setDefaultRoutine(
+        'r2',
+        setDefaultOverride: () async {
+          for (final r in backend) {
+            r['is_default'] = r['id'] == 'r2';
+          }
+        },
+        fetchOverride: () async => backend,
+      );
+
+      expect(provider.savedRoutines.where((r) => r['is_default'] == true).length, 1);
+      expect(provider.savedRoutines.firstWhere((r) => r['id'] == 'r2')['is_default'], isTrue);
+      expect(provider.savedRoutines.firstWhere((r) => r['id'] == 'r1')['is_default'], isFalse);
+      expect(provider.errorMessage, isNull);
+    });
+
+    test('errores del setDefaultOverride se reflejan en errorMessage sin lanzar', () async {
+      final provider = TrainingProvider();
+
+      await provider.setDefaultRoutine(
+        'r2',
+        setDefaultOverride: () async => throw Exception('boom'),
+        fetchOverride: () async => [],
+      );
+
+      expect(provider.errorMessage, contains('boom'));
+    });
+  });
+
   group('TrainingProvider.buildSetsFromRoutineItems (T13.3.1)', () {
     test('crea sum(sets) WorkoutSet con reps/rpe de cada item, no los defaults', () {
       final items = [

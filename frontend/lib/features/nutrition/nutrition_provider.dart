@@ -92,19 +92,39 @@ class UserGoals {
 }
 
 class NutritionProvider extends ChangeNotifier {
-  final SupabaseClient _client;
+  final SupabaseClient? _clientOverride;
 
-  NutritionProvider({SupabaseClient? client}) : _client = client ?? SupabaseConfig.client;
+  NutritionProvider({SupabaseClient? client}) : _clientOverride = client;
+
+  // Se resuelve perezosamente (no en el constructor): instanciar
+  // `SupabaseConfig.client` antes de que `Supabase.initialize()` haya
+  // corrido lanza una excepción síncrona (ver INC-015, docs/logs/log.md),
+  // lo que rompía `NutritionProvider()` incluso en tests que solo usan los
+  // seams inyectables (`fetchOverride`/`setDefaultOverride`) y nunca tocan
+  // el cliente real.
+  SupabaseClient get _client => _clientOverride ?? SupabaseConfig.client;
 
   UserGoals? _goals;
   List<FoodLog> _foodLogs = [];
   bool _isLoading = false;
   String? _errorMessage;
+  List<Map<String, dynamic>> _mealPlans = [];
 
   UserGoals? get goals => _goals;
   List<FoodLog> get foodLogs => _foodLogs;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  List<Map<String, dynamic>> get mealPlans => List.unmodifiable(_mealPlans);
+
+  /// Plan de comida marcado como predeterminado (`is_default == true`), o
+  /// `null` si no hay ninguno marcado (T16.3.1). Usado por `DiaryScreen`
+  /// para comparar lo planificado vs. lo realmente registrado por comida.
+  Map<String, dynamic>? get defaultMealPlan {
+    for (final plan in _mealPlans) {
+      if (plan['is_default'] == true) return plan;
+    }
+    return null;
+  }
 
   double get totalCalories => _foodLogs.fold(0, (sum, item) => sum + item.calories);
   double get totalProtein => _foodLogs.fold(0, (sum, item) => sum + item.proteinG);
@@ -226,6 +246,64 @@ class NutritionProvider extends ChangeNotifier {
       _errorMessage = e.toString();
       notifyListeners();
       return false;
+    }
+  }
+
+  /// Carga los planes de comida guardados por el usuario (`nutrition.meal_plans`).
+  ///
+  /// [fetchOverride] permite inyectar la respuesta en tests sin levantar un
+  /// `SupabaseClient` real (mismo seam que
+  /// `TrainingProvider.fetchSavedRoutines`, ver INC-015 en docs/logs/log.md).
+  Future<void> fetchMealPlans({
+    Future<List<Map<String, dynamic>>> Function()? fetchOverride,
+  }) async {
+    try {
+      if (fetchOverride != null) {
+        _mealPlans = await fetchOverride();
+      } else {
+        final data = await _client
+            .schema('nutrition')
+            .from('meal_plans')
+            .select()
+            .order('created_at', ascending: false);
+        _mealPlans = List<Map<String, dynamic>>.from(data);
+      }
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  /// Marca [planId] como predeterminado (`nutrition.meal_plans.is_default`),
+  /// desmarcando primero cualquier otro plan que ya lo fuera del usuario, y
+  /// refresca [mealPlans]. Mismo patrón que `TrainingProvider.setDefaultRoutine`.
+  Future<void> setDefaultMealPlan(
+    String planId, {
+    Future<void> Function()? setDefaultOverride,
+    Future<List<Map<String, dynamic>>> Function()? fetchOverride,
+  }) async {
+    try {
+      if (setDefaultOverride != null) {
+        await setDefaultOverride();
+      } else {
+        final userId = _currentUserId;
+        await _client
+            .schema('nutrition')
+            .from('meal_plans')
+            .update({'is_default': false})
+            .eq('user_id', userId)
+            .eq('is_default', true);
+        await _client
+            .schema('nutrition')
+            .from('meal_plans')
+            .update({'is_default': true})
+            .eq('id', planId);
+      }
+      await fetchMealPlans(fetchOverride: fetchOverride);
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
     }
   }
 

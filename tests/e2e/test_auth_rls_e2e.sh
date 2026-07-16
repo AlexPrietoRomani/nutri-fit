@@ -95,6 +95,26 @@ COUNT_ROUTINES_B=$(echo "$BODY_ROUTINES_B" | python -c "import sys,json;print(le
 [ "$COUNT_ROUTINES_B" = "0" ] && pass "AC8: B ve 0 rutinas de A" \
   || fail "AC8: B vio $COUNT_ROUTINES_B rutinas (esperado 0)"
 
+# --- T16.1.1 (Fase F16, Planificación de Nutrición/Entrenamiento) — A crea un meal_plan default ---
+MEALPLAN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$GATEWAY/rest/v1/meal_plans" \
+  -H "Authorization: Bearer $TOKEN_A" -H "Content-Type: application/json" -H "Content-Profile: nutrition" \
+  -d "{\"user_id\":\"$SUB_A\",\"name\":\"Plan Test\",\"meals\":[{\"meal_type\":\"breakfast\",\"food_name\":\"Avena\",\"calories\":300}],\"is_default\":true}")
+[ "$MEALPLAN_STATUS" = "201" ] && pass "AC9: A pudo crear su propio meal_plan default (201)" \
+  || fail "AC9: INSERT de meal_plan propio devolvió $MEALPLAN_STATUS (esperado 201)"
+
+# --- AC10: B no ve el meal_plan de A ---
+BODY_MEALPLANS_B=$(curl -s "$GATEWAY/rest/v1/meal_plans" -H "Authorization: Bearer $TOKEN_B" -H "Accept-Profile: nutrition")
+COUNT_MEALPLANS_B=$(echo "$BODY_MEALPLANS_B" | python -c "import sys,json;print(len(json.load(sys.stdin)))")
+[ "$COUNT_MEALPLANS_B" = "0" ] && pass "AC10: B ve 0 meal_plans de A" \
+  || fail "AC10: B vio $COUNT_MEALPLANS_B meal_plans (esperado 0)"
+
+# --- AC11: un segundo meal_plan default del MISMO usuario A debe fallar (índice único parcial) ---
+MEALPLAN2_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$GATEWAY/rest/v1/meal_plans" \
+  -H "Authorization: Bearer $TOKEN_A" -H "Content-Type: application/json" -H "Content-Profile: nutrition" \
+  -d "{\"user_id\":\"$SUB_A\",\"name\":\"Plan Test 2\",\"meals\":[{\"meal_type\":\"lunch\",\"food_name\":\"Pollo\",\"calories\":400}],\"is_default\":true}")
+[ "$MEALPLAN2_STATUS" = "409" ] && pass "AC11: segundo meal_plan default del mismo usuario rechazado (409, uq_meal_plans_default_per_user)" \
+  || fail "AC11: segundo INSERT default devolvió $MEALPLAN2_STATUS (esperado 409 por índice único parcial)"
+
 if [ "$FAIL" = "0" ]; then
   echo "TODOS LOS TESTS E2E DE T10.2.1/T10.2.2 PASARON"
   exit 0
