@@ -51,12 +51,19 @@ graph TB
    - Inserta metas calóricas y macros calculados en `nutrition.user_goals`.
 
 ### Flujo B: Registro de Alimentos por Foto
-1. **User Action:** Clic en "Tomar foto con IA" dentro de la sección "Almuerzo".
-2. **Frontend Logic:** Captura la imagen, la almacena localmente y la sube al bucket de Supabase Storage `/meals`. Obtiene una URL pública.
+1. **User Action:** Clic en el botón de cámara ("Tomar foto con IA") en el Diario nutricional.
+2. **Frontend Logic:** Captura/elige la imagen con `image_picker` y la sube **directamente por multipart** al `ai_service` (sin pasar por Supabase Storage), adjuntando la `AIConfig` guardada en secure storage (ver ADR 8).
 3. **Backend Side-Effects:**
-   - La app hace un POST a `http://ai-service/analyze-meal` con la URL de la imagen.
-   - FastAPI procesa la foto con LLaVA o Gemini Vision y retorna la información nutricional en JSON.
-   - El frontend muestra los datos. Si el usuario hace clic en "Guardar", se ejecuta un `INSERT` en la tabla `nutrition.food_logs`.
+   - La app hace un `POST` multipart a `/analyze-meal` con el archivo de imagen (campo `file`) y la config (`ai`).
+   - FastAPI enruta a `generate_vision` según el proveedor; si no hay config o falla, cae a Ollama local (`llava`) y por último a un mock estructurado.
+   - El frontend muestra el borrador editable. Si el usuario hace clic en "Guardar", se ejecuta un `INSERT` en `nutrition.food_logs`.
+
+### Flujo D: Escaneo de Máquina de Gimnasio por Foto
+1. **User Action:** Clic en el botón de cámara ("Escanear máquina con IA") en Entrenamiento.
+2. **Frontend Logic:** Captura/elige la imagen con `image_picker` y la sube por multipart al `ai_service` con la `AIConfig` (misma mecánica que el Flujo B).
+3. **Backend Side-Effects:**
+   - `POST` multipart a `/identify-machine` (campo `file` + `ai`) → `generate_vision` → ficha JSON.
+   - **Sin escritura en DB:** el resultado (máquina, músculos, ejercicios sugeridos, tips) se muestra en una ficha informativa; no persiste nada.
 
 ### Flujo C: Ejecución y Completado de Rutina (Tracker en Vivo)
 1. **User Action:** Clic en "Empezar Entrenamiento" -> Iniciar serie de Press de Banca.
@@ -93,3 +100,10 @@ graph TB
 - **Justificación:** El protocolo OpenAI-compatible es el mínimo común denominador de casi todos los servidores de LLM, así que una sola abstracción cubre 6 de 7 proveedores; cambiar de proveedor es solo cambiar la config, no el código. Claude usa su SDK nativo por fidelidad de la API.
 - **Seguridad / estado:** El servicio es **stateless** — no persiste claves ni historial. La app Flutter guarda la config en `flutter_secure_storage` y la envía por request; el historial de chat vive en el cliente (MVP). Un request sin config válida devuelve **503** con detalle, nunca un crash.
 - **Flujo del chatbot:** `Ajustes de IA` (elige proveedor + clave) → guarda en secure storage → `Chat`/botones de generación → `POST` al endpoint con la `AIConfig` → `ai_engine` enruta al proveedor → respuesta. Para rutinas, el backend consulta `training.exercises` y pasa candidatos reales al modelo, descartando `exercise_id` alucinados.
+
+### ADR 8: Visión multi-proveedor (imagen → JSON) en el microservicio (F9)
+- **Contexto:** El Diario nutricional necesita estimar comida desde una foto y Entrenamiento identificar una máquina desde una foto. Los endpoints `/analyze-meal` y `/identify-machine` ya existían en el backend pero el cliente Flutter nunca los llamaba (hallazgo B1 de la auditoría).
+- **Decisión:** Se extiende `ai_engine.py` con `generate_vision(cfg, prompt, image_b64, want_json)`, reusando las dos ramas de la capa multi-proveedor: **(a)** OpenAI-compatible envía la imagen como content block `image_url` con `data:image/jpeg;base64,…` (cubre OpenAI/Gemini/OpenRouter/LM Studio/vLLM/Ollama con modelo multimodal); **(b)** Anthropic usa el bloque `image` con `source` base64. Ambos endpoints aceptan una `AIConfig` **opcional** por multipart (campo `ai`): si viene, se usa `generate_vision`; si falla o no viene, se mantiene el fallback existente (Ollama local → **mock** determinista), así el flujo se valida siempre.
+- **Frontend:** dep `image_picker`; `VisionService` sube la foto por multipart y adjunta la `AIConfig` guardada en secure storage (F8). En el Diario, botón cámara → `/analyze-meal` → borrador editable (tipo de comida + macros) → `INSERT` en `nutrition.food_logs`. En Entrenamiento, botón cámara → `/identify-machine` → ficha (máquina, músculos, ejercicios sugeridos, tips).
+- **Estado / seguridad:** stateless igual que el chat — la imagen se procesa en memoria y no se persiste; la clave viaja por request y no se guarda en el servidor. No toca `diseno_db.md` (`food_logs` ya existía).
+- **Verificación E2E:** validado contra el Ollama del host con `gemma4:e4b` (capacidad `vision`): `/identify-machine` devolvió ficha estructurada real (~7.6s) y `/analyze-meal` clasificó correctamente una imagen sin comida (food_items=[], 0 kcal) — respuestas reales del modelo, no el mock.

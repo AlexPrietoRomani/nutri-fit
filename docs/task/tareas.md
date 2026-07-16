@@ -201,14 +201,14 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ---
 
-## F9: IA de Visión en el Frontend (foto → macros / máquina) [ ]
+## F9: IA de Visión en el Frontend (foto → macros / máquina) [X]
 
 > Cierra el hallazgo B1 de la auditoría: `/analyze-meal` y `/identify-machine` existen pero el cliente nunca los llama. Visión multi-proveedor reusando la `AIConfig` de F8; fallback a Ollama `llava` + mock.
 > **AC de Fase:** visión en `ai_engine` (openai `image_url` + anthropic `image`) · Diario foto→borrador→`food_logs` · Entrenamiento foto→máquina+ejercicios · ADR + sin secretos.
 
-### SF9.1: Visión Multi-Proveedor (backend) [ ]
+### SF9.1: Visión Multi-Proveedor (backend) [X]
 
-#### T9.1.1: `ai_engine.generate_vision(cfg, prompt, image_b64)` [ ]
+#### T9.1.1: `ai_engine.generate_vision(cfg, prompt, image_b64)` [X]
 - **🧠 Explicación:** Añade una función de visión análoga a `generate`: la rama OpenAI-compatible manda la imagen como content block `{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,..."}}`; la rama Anthropic como bloque `{"type":"image","source":{"type":"base64",...}}`. Reusa el enrutamiento por `provider`/`protocol` y el manejo de errores (`AIEngineError`).
 - **💡 Cómo hacerlo:** en `ai_engine.py`, `generate_vision(cfg, prompt, image_b64, want_json=True)`:
   ```python
@@ -232,56 +232,56 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
       return next((b.text for b in r.content if b.type=="text"), "")
   ```
 - **Acciones:**
-  - `[ ]` A9.1.1.1: `generate_vision` con ramas openai/anthropic y validación de proveedor.
-  - `[ ]` A9.1.1.2: Reutilizar `_resolve_base_url`/`AIEngineError`.
+  - `[X]` A9.1.1.1: `generate_vision` con ramas openai/anthropic y validación de proveedor.
+  - `[X]` A9.1.1.2: Reutilizar `_resolve_base_url`/`AIEngineError`.
 - **✅ Tests Unitarios:** con `openai`/`anthropic` mockeados: `provider=claude` usa bloque `image`; providers openai-compat usan `image_url` con el `base_url` correcto; proveedor inválido → `AIEngineError`.
 - **🎭 Tests de Simulación de Usuario:** N/A (capa interna).
 
-#### T9.1.2: `/analyze-meal` y `/identify-machine` aceptan `AIConfig` opcional [ ]
+#### T9.1.2: `/analyze-meal` y `/identify-machine` aceptan `AIConfig` opcional [X]
 - **🧠 Explicación:** Hoy usan Ollama `llava` fijo + mock. Se añade un campo `ai: AIConfig` opcional al form; si viene, se usa `generate_vision`; si no, se mantiene el fallback actual (Ollama llava → mock). El parseo del JSON de comida/máquina se valida.
 - **💡 Cómo hacerlo:** en `main.py`, aceptar `ai` (JSON string en el multipart) y `file`/`image_url`; construir el prompt existente y llamar `ai_engine.generate_vision(cfg, prompt, image_b64, want_json=True)`; en except → mock actual.
 - **Acciones:**
-  - `[ ]` A9.1.2.1: Parsear `AIConfig` opcional del form en ambos endpoints.
-  - `[ ]` A9.1.2.2: Rama con `generate_vision` + fallback Ollama/mock preservado.
+  - `[X]` A9.1.2.1: Parsear `AIConfig` opcional del form en ambos endpoints.
+  - `[X]` A9.1.2.2: Rama con `generate_vision` + fallback Ollama/mock preservado.
 - **✅ Tests Unitarios:** con motor mockeado, `/analyze-meal` con `ai` devuelve el JSON del proveedor; sin `ai` o con fallo → mock (200).
 - **🎭 Tests de Simulación de Usuario:** subir una foto y recibir un borrador (real o mock) no vacío.
 
-### SF9.2: Cámara y Flujos (frontend) [ ]
+### SF9.2: Cámara y Flujos (frontend) [X]
 
-#### T9.2.1: Dep `image_picker` + servicio de subida [ ]
+#### T9.2.1: Dep `image_picker` + servicio de subida [X]
 - **🧠 Explicación:** `image_picker` para cámara/galería (móvil y web). Un servicio que toma la imagen, la codifica y hace `multipart POST` al `ai_service` con la `AIConfig` guardada (F8).
 - **💡 Cómo hacerlo:** añadir `image_picker` a `pubspec.yaml`; `vision_service.dart` con `analyzeMeal(XFile, AIConfig)` e `identifyMachine(...)` usando `http.MultipartRequest` a `AppConstants.aiServiceUrl`.
 - **Acciones:**
-  - `[ ]` A9.2.1.1: Añadir `image_picker` a `pubspec.yaml`.
-  - `[ ]` A9.2.1.2: `vision_service.dart` (captura + multipart + AIConfig).
+  - `[X]` A9.2.1.1: Añadir `image_picker` a `pubspec.yaml`.
+  - `[X]` A9.2.1.2: `vision_service.dart` (captura + multipart + AIConfig).
 - **✅ Tests Unitarios:** el servicio arma el multipart con el campo `ai` y parsea la respuesta (mock HTTP).
 - **🎭 Tests de Simulación de Usuario:** cubierto en T9.2.2/T9.2.3.
 
-#### T9.2.2: Diario — "Tomar foto con IA" → confirmar → `food_logs` [ ]
+#### T9.2.2: Diario — "Tomar foto con IA" → confirmar → `food_logs` [X]
 - **🧠 Explicación:** Botón en `diary_screen.dart` que abre cámara/galería, llama `/analyze-meal`, muestra el borrador en un diálogo (nombre/calorías/macros editables) y al confirmar usa `NutritionProvider.addFoodLog(...)`.
 - **💡 Cómo hacerlo:** botón → `ImagePicker().pickImage` → `visionService.analyzeMeal` → diálogo de confirmación → `addFoodLog`.
 - **Acciones:**
-  - `[ ]` A9.2.2.1: Botón + captura en `diary_screen.dart`.
-  - `[ ]` A9.2.2.2: Diálogo de borrador editable.
-  - `[ ]` A9.2.2.3: Confirmar → `addFoodLog` + refresco de la lista.
+  - `[X]` A9.2.2.1: Botón + captura en `diary_screen.dart`.
+  - `[X]` A9.2.2.2: Diálogo de borrador editable.
+  - `[X]` A9.2.2.3: Confirmar → `addFoodLog` + refresco de la lista.
 - **✅ Tests Unitarios:** el mapeo respuesta→borrador y borrador→payload de `addFoodLog` es correcto.
 - **🎭 Tests de Simulación de Usuario:** elegir foto → ver borrador → confirmar → la comida aparece en el Diario y en `nutrition.food_logs`.
 
-#### T9.2.3: Entrenamiento — "Escanear máquina con IA" [ ]
+#### T9.2.3: Entrenamiento — "Escanear máquina con IA" [X]
 - **🧠 Explicación:** Botón que llama `/identify-machine` y muestra máquina, músculos objetivo, ejercicios sugeridos y tips de seguridad.
 - **💡 Cómo hacerlo:** botón en la pantalla de entrenamiento → `visionService.identifyMachine` → hoja/diálogo con la ficha.
 - **Acciones:**
-  - `[ ]` A9.2.3.1: Botón + captura.
-  - `[ ]` A9.2.3.2: Vista de ficha de máquina (músculos, ejercicios, tips).
+  - `[X]` A9.2.3.1: Botón + captura.
+  - `[X]` A9.2.3.2: Vista de ficha de máquina (músculos, ejercicios, tips).
 - **✅ Tests Unitarios:** parseo de `MachineIdentificationResponse` en el cliente.
 - **🎭 Tests de Simulación de Usuario:** escanear una máquina → ver su ficha con ejercicios sugeridos.
 
-### SF9.3: Documentación [ ]
+### SF9.3: Documentación [X]
 
-#### T9.3.1: ADR/flujo de visión en `architecture.md` [ ]
+#### T9.3.1: ADR/flujo de visión en `architecture.md` [X]
 - **🧠 Explicación:** Formalizar que la visión también es multi-proveedor (imagen base64) y el flujo cámara→endpoint→confirmación.
 - **💡 Cómo hacerlo:** ampliar el ADR de IA (o ADR 8) con la rama de visión y el flujo del Diario/Entrenamiento.
 - **Acciones:**
-  - `[ ]` A9.3.1.1: Documentar la visión multi-proveedor en `architecture.md`.
+  - `[X]` A9.3.1.1: Documentar la visión multi-proveedor en `architecture.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A.
