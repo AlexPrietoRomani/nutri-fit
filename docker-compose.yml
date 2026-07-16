@@ -31,7 +31,7 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://postgres:devpassword123@postgres:5432/postgres
-      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
       PORT: 8000
       # --- Capa de IA multi-proveedor (F8) ---
       # Claves opcionales por defecto; el cliente puede enviar la suya por request.
@@ -46,16 +46,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - nutrifit-network
-
-  ollama:
-    image: ollama/ollama:latest
-    container_name: nutri-fit-ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
     networks:
       - nutrifit-network
 
@@ -117,4 +107,3 @@ networks:
 
 volumes:
   postgres_data:
-  ollama_data:

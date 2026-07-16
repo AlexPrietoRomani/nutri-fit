@@ -2,7 +2,7 @@ import os
 import base64
 import json
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form, BackgroundTasks
 from pydantic import BaseModel, Field
 import httpx
 import psycopg2
@@ -43,7 +43,7 @@ app.add_middleware(
 
 # Configuración desde variables de entorno
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llava")
 
 # Esquemas de respuesta structured JSON para los endpoints
@@ -487,6 +487,76 @@ def chat_plan(req: ChatPlanRequest):
         meal_plan = _build_meal_plan(req.ai, goals, intent.get("preferences"))
     reply = _run_ai(req.ai, f"{FITNESS_SYSTEM}\nResume en 2-3 frases, en español, qué generaste en respuesta a: \"{req.message}\"")
     return ChatPlanResponse(reply=reply, workout=workout, meal_plan=meal_plan)
+
+
+# ============================================================================
+# F12 — Gestión de Modelos Ollama (SF12.2)
+# ============================================================================
+
+def _native_ollama_host(base_url: Optional[str]) -> str:
+    """Deriva el host nativo de Ollama a partir de un base_url que puede venir
+    con el sufijo /v1 (modo OpenAI-compatible) o sin él."""
+    url = (base_url or OLLAMA_HOST).rstrip("/")
+    return url[:-3] if url.endswith("/v1") else url
+
+
+@app.get("/ollama/models")
+async def list_ollama_models(base_url: Optional[str] = None):
+    """Lista los modelos instalados en el servidor Ollama nativo."""
+    host = _native_ollama_host(base_url)
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{host}/api/tags", timeout=5.0)
+            response.raise_for_status()
+            data = response.json()
+            return {"models": [{"name": m["name"], "size": m.get("size")} for m in data.get("models", [])]}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"No se pudo listar modelos de Ollama en {host}: {e}")
+
+
+_ollama_pull_status: dict[str, dict] = {}  # en memoria, MVP
+# ponytail: estado de pull en memoria de proceso (se pierde en restart/multi-worker);
+# subir a Redis/DB si se necesita persistencia o escalar a más de un worker.
+
+
+async def _run_ollama_pull(host: str, model: str) -> None:
+    """Ejecuta `ollama pull` vía streaming NDJSON y guarda el progreso en memoria."""
+    _ollama_pull_status[model] = {"status": "starting", "done": False}
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("POST", f"{host}/api/pull", json={"name": model, "stream": True}) as resp:
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    chunk = json.loads(line)
+                    status = chunk.get("status", "")
+                    _ollama_pull_status[model] = {
+                        "status": status,
+                        "done": status == "success",
+                        "completed": chunk.get("completed"),
+                        "total": chunk.get("total"),
+                    }
+    except Exception as e:
+        _ollama_pull_status[model] = {"status": f"error: {e}", "done": True, "error": True}
+
+
+class OllamaPullRequest(BaseModel):
+    model: str
+    base_url: Optional[str] = None
+
+
+@app.post("/ollama/pull")
+async def pull_ollama_model(req: OllamaPullRequest, background_tasks: BackgroundTasks):
+    """Dispara la descarga de un modelo Ollama en segundo plano."""
+    host = _native_ollama_host(req.base_url)
+    background_tasks.add_task(_run_ollama_pull, host, req.model)
+    return {"started": True, "model": req.model}
+
+
+@app.get("/ollama/pull-status")
+def get_ollama_pull_status(model: str):
+    """Consulta el progreso de una descarga de modelo en curso."""
+    return _ollama_pull_status.get(model, {"status": "not_started", "done": False})
 
 
 # Configurar el servicio de archivos estáticos para producción si la carpeta existe
