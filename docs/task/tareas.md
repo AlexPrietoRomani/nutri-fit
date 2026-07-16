@@ -1280,6 +1280,37 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** el prompt incluye las restricciones; con restricción "sin refrigerador" el mensaje al LLM lo refleja.
 - **🎭 Tests de Simulación de Usuario:** declarar "no tengo refri" → pedir un plan → el plan evita cosas que requieren refrigeración / ofrece alternativas.
 
+### SF18.8: Catálogo por ingredientes + platos componibles [ ]
+
+> **Dependencia:** ejecutar ANTES de SF18.5 — los micronutrientes se cuelgan del ingrediente (macros por 100 g), no del plato. Requiere `docker compose down -v` (pedir confirmación explícita).
+
+#### T18.8.1: Tabla `nutrition.ingredients` (macros por 100 g/ml) + seed [ ]
+- **🧠 Explicación:** Hoy `food_catalog` solo tiene platos "planos" (arroz con pollo con macros fijas). Falta el nivel ingrediente (pechuga de pollo, muslo, arroz…) con macros por 100 g/ml, que es lo reutilizable y sobre lo que se componen los platos.
+- **💡 Cómo hacerlo:** SQL nuevo en `docker/postgres/`: `nutrition.ingredients (id SERIAL PK, name TEXT UNIQUE, category TEXT, unit TEXT CHECK (unit IN ('g','ml')) DEFAULT 'g', calories_per_100 REAL, protein_per_100 REAL, carbs_per_100 REAL, fat_per_100 REAL)`, con RLS OFF + `GRANT SELECT` público (mismo patrón que `food_catalog`/`exercises`). Seed de ingredientes base peruanos (los que componen los ~50 platos ya existentes: pollo, arroz, papa, aceite, cebolla, ají, etc.), macros marcadas como estimaciones honestas.
+- **Acciones:**
+  - `[ ]` A18.8.1.1: Tabla `ingredients` (lectura pública) montada en compose.
+  - `[ ]` A18.8.1.2: Seed de ingredientes base que cubren los platos actuales.
+- **✅ Tests Unitarios:** `count` de filas ≥ N sembradas; extender `test_auth_rls_e2e.sh` (lectura pública de `ingredients` con JWT real, como `food_catalog`).
+- **🎭 Tests de Simulación de Usuario:** buscar un ingrediente (p. ej. "pechuga de pollo") y ver sus macros por 100 g.
+
+#### T18.8.2: Composición de platos + recálculo de macros [ ]
+- **🧠 Explicación:** Un plato debe poder declararse como conjunto de ingredientes con cantidades (arroz con pollo = pechuga 100 g + arroz 300 g + …), para que al editar/quitar/agregar porciones los macros se recalculen. Compat. hacia atrás: los platos sin composición siguen usando sus macros planas.
+- **💡 Cómo hacerlo:** `food_catalog` gana `ingredients JSONB` (`[{ingredient_id, grams}]`, nullable). Helper puro `macrosFromIngredients(items, ingredientsById)` que suma `qty/100 × por_100` por ingrediente. Si `food_catalog.ingredients` es NULL → usar las macros planas existentes (sin romper F17). No hace falta tabla relacional nueva (JSONB, patrón ya usado en `meals`/`items`). Requiere `down -v` por el cambio de esquema.
+- **Acciones:**
+  - `[ ]` A18.8.2.1: Columna `ingredients` JSONB en `food_catalog` + poblar la composición de un subconjunto de platos peruanos.
+  - `[ ]` A18.8.2.2: Helper de recálculo de macros desde ingredientes (puro, testeable) con fallback a macros planas.
+- **✅ Tests Unitarios:** `macrosFromIngredients` suma correcto (caso conocido: 100 g pechuga + 300 g arroz → kcal/prot/carb/grasa esperados ±1); plato sin composición devuelve sus macros planas.
+- **🎭 Tests de Simulación de Usuario:** elegir "arroz con pollo" → ver que se descompone en sus ingredientes con gramos.
+
+#### T18.8.3: UI de plato componible (editar porciones) [ ]
+- **🧠 Explicación:** Al registrar un plato, el usuario debe poder tomarlo completo o ver/editar sus ingredientes (cambiar gramos/ml, quitar, agregar otro) y ver los macros actualizarse en vivo, antes de guardar en el diario.
+- **💡 Cómo hacerlo:** en `diary_screen.dart`, al elegir un plato del catálogo, expandir la lista de ingredientes (de `food_catalog.ingredients`) en el diálogo de borrador existente; cada ingrediente con input de cantidad; botón para agregar ingrediente (busca en `ingredients` — seam de T18.8.1); recálculo con el helper de T18.8.2; al confirmar, registrar (plato completo o los ingredientes). Reusar el diálogo de borrador de F9/F16.
+- **Acciones:**
+  - `[ ]` A18.8.3.1: Expansión editable de ingredientes en el diálogo de borrador.
+  - `[ ]` A18.8.3.2: Agregar/quitar ingrediente + recálculo en vivo + registro.
+- **✅ Tests Unitarios:** widget test — editar la porción de un ingrediente recalcula los macros mostrados; quitar un ingrediente los reduce (con seams, sin Supabase real).
+- **🎭 Tests de Simulación de Usuario:** elegir un plato → cambiar 300 g de arroz a 150 g → ver kcal bajar → guardar.
+
 ### SF18.7: Documentación [ ]
 
 #### T18.7.1: ADR 16 + esquema en `diseno_db.md` [ ]
@@ -1287,6 +1318,6 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **💡 Cómo hacerlo:** ADR 16 en `architecture.md`; en `diseno_db.md`: shape `days`, `nutrition.food_preferences`, micros en `food_catalog`.
 - **Acciones:**
   - `[ ]` A18.7.1.1: ADR 16 en `architecture.md`.
-  - `[ ]` A18.7.1.2: Esquema nuevo en `diseno_db.md`.
+  - `[ ]` A18.7.1.2: Esquema nuevo en `diseno_db.md` (days, `food_preferences`, micros, `ingredients` + composición de `food_catalog`).
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).

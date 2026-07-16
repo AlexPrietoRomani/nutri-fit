@@ -326,5 +326,10 @@ Este documento detalla la planificación del desarrollo de Nutri-Fit, incluyendo
   - T18.5.2: UI de micronutrientes en comida/planes.
 - **F18.SF6: Alternativas por restricciones**
   - T18.6.1: Inyección de restricciones al prompt + mecanismo de "dame una alternativa a X" en el chat.
+- **F18.SF8: Catálogo por ingredientes + platos componibles**
+  - Modelo de comida a nivel ingrediente (macros por 100g/ml) y platos compuestos de ingredientes con cantidades, para poder añadir/quitar/cambiar porciones. **Debe ir ANTES de SF18.5** (los micros se cuelgan del ingrediente, no del plato). Requiere `docker compose down -v`.
+  - T18.8.1: Tabla `nutrition.ingredients` (macros por 100 g/ml) + seed de ingredientes base peruanos (lectura pública, como `food_catalog`).
+  - T18.8.2: Composición de platos: `food_catalog` gana `ingredients` JSONB `[{ingredient_id, grams|ml}]`; helper que recalcula macros del plato desde sus ingredientes; compat. con platos sin composición (macros planas actuales).
+  - T18.8.3: UI — al elegir un plato, expandir sus ingredientes; añadir/quitar/cambiar porción; recálculo en vivo de macros; opción de registrar el plato completo o ingrediente a ingrediente.
 - **F18.SF7: Documentación**
-  - T18.7.1: ADR 16 en `architecture.md` + esquema nuevo en `diseno_db.md`.
+  - T18.7.1: ADR 16 en `architecture.md` + esquema nuevo en `diseno_db.md` (incluye `ingredients` + composición de `food_catalog`).
