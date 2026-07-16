@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
 import 'training_provider.dart';
 import 'active_workout_screen.dart';
+import '../ai/ai_provider.dart';
+import '../ai/vision_service.dart';
 
 class WorkoutScreen extends StatefulWidget {
   const WorkoutScreen({super.key});
@@ -45,6 +48,64 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     },
   ];
 
+  /// Captura/elige una foto de una máquina y muestra su ficha vía IA.
+  Future<void> _scanMachine() async {
+    final XFile? img = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 70);
+    if (img == null || !mounted) return;
+    final cfg = context.read<AiProvider>().config;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator(
+        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2ED573)),
+      )),
+    );
+    try {
+      final data = await VisionService().identifyMachine(img, cfg);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      _showMachineSheet(data);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo identificar la máquina: $e'), backgroundColor: Colors.redAccent),
+      );
+    }
+  }
+
+  void _showMachineSheet(Map<String, dynamic> d) {
+    final name = d['machine_name']?.toString() ?? 'Máquina';
+    final desc = d['description']?.toString() ?? '';
+    final muscles = (d['target_muscles'] as List?)?.map((e) => e.toString()).toList() ?? [];
+    final exercises = (d['associated_exercises'] as List?)?.map((e) => e.toString()).toList() ?? [];
+    final tips = (d['safety_tips'] as List?)?.map((e) => e.toString()).toList() ?? [];
+    const accent = TextStyle(color: Color(0xFF2ED573), fontWeight: FontWeight.bold);
+    const body = TextStyle(color: Colors.white70);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E201E),
+      isScrollControlled: true,
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              if (desc.isNotEmpty) ...[const SizedBox(height: 8), Text(desc, style: const TextStyle(color: Colors.grey))],
+              if (muscles.isNotEmpty) ...[const SizedBox(height: 12), const Text('Músculos objetivo', style: accent), Text(muscles.join(', '), style: body)],
+              if (exercises.isNotEmpty) ...[const SizedBox(height: 12), const Text('Ejercicios sugeridos', style: accent), ...exercises.map((e) => Text('• $e', style: body))],
+              if (tips.isNotEmpty) ...[const SizedBox(height: 12), const Text('Tips de seguridad', style: accent), ...tips.map((t) => Text('• $t', style: body))],
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _startWorkout(String routineName) async {
     final provider = context.read<TrainingProvider>();
     await provider.startWorkoutSession(routineName);
@@ -80,6 +141,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       appBar: AppBar(
         title: const Text('Entrenamiento'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.photo_camera_rounded),
+            tooltip: 'Escanear máquina con IA',
+            onPressed: _scanMachine,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             onPressed: () => provider.fetchExercises(),

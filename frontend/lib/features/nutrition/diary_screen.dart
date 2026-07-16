@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
 import 'nutrition_provider.dart';
+import '../ai/ai_provider.dart';
+import '../ai/vision_service.dart';
 
 class DiaryScreen extends StatefulWidget {
   const DiaryScreen({super.key});
@@ -27,6 +30,104 @@ class _DiaryScreenState extends State<DiaryScreen> {
     context.read<NutritionProvider>().loadDailyData(_selectedDate);
   }
 
+  /// Captura/elige una foto de comida, la analiza con la IA y muestra un borrador.
+  Future<void> _scanMeal() async {
+    final XFile? img = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 70,
+    );
+    if (img == null || !mounted) return;
+
+    final cfg = context.read<AiProvider>().config;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator(
+        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2ED573)),
+      )),
+    );
+    try {
+      final data = await VisionService().analyzeMeal(img, cfg);
+      if (!mounted) return;
+      Navigator.of(context).pop(); // cierra el loader
+      await _showMealDraft(data);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo analizar la foto: $e'), backgroundColor: Colors.redAccent),
+      );
+    }
+  }
+
+  /// Muestra el borrador detectado (editable el tipo de comida) y al confirmar
+  /// lo inserta en nutrition.food_logs.
+  Future<void> _showMealDraft(Map<String, dynamic> data) async {
+    final items = (data['food_items'] as List?)?.map((e) => e.toString()).toList() ?? [];
+    final foodName = items.isNotEmpty ? items.join(', ') : (data['notes']?.toString() ?? 'Comida');
+    final calories = (data['calories'] as num?)?.toDouble() ?? 0;
+    final protein = (data['protein'] as num?)?.toDouble() ?? 0;
+    final carbs = (data['carbohydrates'] as num?)?.toDouble() ?? 0;
+    final fat = (data['fat'] as num?)?.toDouble() ?? 0;
+    String mealType = 'lunch';
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSt) => AlertDialog(
+          backgroundColor: const Color(0xFF1E201E),
+          title: const Text('Borrador detectado', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(foodName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text('${calories.round()} kcal · P ${protein.round()}g · C ${carbs.round()}g · G ${fat.round()}g',
+                  style: const TextStyle(color: Colors.grey)),
+              const SizedBox(height: 16),
+              DropdownButton<String>(
+                value: mealType,
+                dropdownColor: const Color(0xFF1E201E),
+                items: const [
+                  DropdownMenuItem(value: 'breakfast', child: Text('Desayuno')),
+                  DropdownMenuItem(value: 'lunch', child: Text('Almuerzo')),
+                  DropdownMenuItem(value: 'dinner', child: Text('Cena')),
+                  DropdownMenuItem(value: 'snack', child: Text('Snack')),
+                ],
+                onChanged: (v) => setSt(() => mealType = v ?? 'lunch'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+            FilledButton(
+              onPressed: () async {
+                final ok = await context.read<NutritionProvider>().addFoodLog(
+                      foodName: foodName,
+                      calories: calories,
+                      proteinG: protein,
+                      carbsG: carbs,
+                      fatG: fat,
+                      servingSizeG: 100,
+                      mealType: mealType,
+                      date: _selectedDate,
+                    );
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(ok ? 'Comida añadida' : 'No se pudo guardar')),
+                  );
+                }
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -37,6 +138,11 @@ class _DiaryScreenState extends State<DiaryScreen> {
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.white),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.photo_camera_rounded, color: Color(0xFF2ED573)),
+            tooltip: 'Tomar foto con IA',
+            onPressed: _scanMeal,
+          ),
           IconButton(
             icon: const Icon(Icons.calendar_today_rounded, color: Color(0xFF2ED573)),
             onPressed: () async {
