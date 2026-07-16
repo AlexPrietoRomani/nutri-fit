@@ -12,6 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/z_init.sql:/docker-entrypoint-initdb.d/z_init.sql
+      - ./docker/postgres/zz_exercises_seed.sql:/docker-entrypoint-initdb.d/zz_exercises_seed.sql
     networks:
       - nutrifit-network
     healthcheck:
