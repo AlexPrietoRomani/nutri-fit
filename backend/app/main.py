@@ -1,10 +1,13 @@
 import os
 import base64
+import json
 from typing import Optional, List
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from pydantic import BaseModel, Field
 import httpx
 import psycopg2
+
+from app.ai_engine import AIConfig, generate as ai_generate, AIEngineError
 
 app = FastAPI(
     title="Nutri-Fit AI Backend",
@@ -228,6 +231,142 @@ async def identify_machine(
         ],
         confidence_score=0.95
     )
+
+# ============================================================================
+# F8 — Chatbot de IA multi-proveedor
+# ============================================================================
+
+FITNESS_SYSTEM = (
+    "Eres un asistente experto en nutrición y entrenamiento de la app Nutri-Fit. "
+    "Responde en español, de forma concreta y accionable."
+)
+
+
+def _run_ai(cfg: AIConfig, prompt: str, want_json: bool = False) -> str:
+    """Invoca la capa de IA y traduce sus errores a HTTP 503."""
+    try:
+        return ai_generate(cfg, prompt, want_json=want_json)
+    except AIEngineError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+def _parse_json_or_502(text: str) -> dict:
+    """Parsea JSON del modelo o devuelve 502 si vino malformado."""
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        raise HTTPException(status_code=502, detail="El proveedor devolvió un JSON inválido.")
+
+
+class ChatRequest(BaseModel):
+    message: str
+    profile: Optional[dict] = None
+    ai: AIConfig
+
+
+class ChatResponse(BaseModel):
+    reply: str
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(req: ChatRequest):
+    """Q&A conversacional de fitness/nutrición con contexto de perfil."""
+    ctx = f"\nPerfil del usuario: {json.dumps(req.profile, ensure_ascii=False)}" if req.profile else ""
+    prompt = f"{FITNESS_SYSTEM}{ctx}\n\nUsuario: {req.message}"
+    return ChatResponse(reply=_run_ai(req.ai, prompt))
+
+
+class MealPlanRequest(BaseModel):
+    goals: dict = Field(..., description="target_calories y macros del usuario")
+    preferences: Optional[str] = None
+    ai: AIConfig
+
+
+@app.post("/generate-meal-plan")
+def generate_meal_plan(req: MealPlanRequest):
+    """Genera un plan de comidas en JSON coherente con las metas del usuario."""
+    prompt = (
+        f"{FITNESS_SYSTEM}\nGenera un plan de comidas para UN día que cumpla estas metas: "
+        f"{json.dumps(req.goals, ensure_ascii=False)}. "
+        f"Preferencias: {req.preferences or 'ninguna'}.\n"
+        "Devuelve SOLO un objeto JSON con esta forma exacta:\n"
+        '{"meals": [{"meal_type": "breakfast|lunch|dinner|snack", "food_name": "str", '
+        '"calories": num, "protein_g": num, "carbs_g": num, "fat_g": num, "serving_size_g": num}]}'
+    )
+    data = _parse_json_or_502(_run_ai(req.ai, prompt, want_json=True))
+    if not isinstance(data.get("meals"), list) or not data["meals"]:
+        raise HTTPException(status_code=502, detail="El plan de comidas no contiene 'meals'.")
+    return data
+
+
+def _fetch_exercise_candidates(body_part: Optional[str], equipment: Optional[str], limit: int = 40) -> List[dict]:
+    """Consulta ejercicios reales del catálogo para acotar la elección del modelo."""
+    conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+    try:
+        with conn.cursor() as cur:
+            query = "SELECT id, name, body_part, equipment FROM training.exercises WHERE TRUE"
+            params: list = []
+            if body_part:
+                query += " AND body_part ILIKE %s"
+                params.append(f"%{body_part}%")
+            if equipment:
+                query += " AND equipment ILIKE %s"
+                params.append(f"%{equipment}%")
+            query += " LIMIT %s"
+            params.append(limit)
+            cur.execute(query, params)
+            return [
+                {"id": r[0], "name": r[1], "body_part": r[2], "equipment": r[3]}
+                for r in cur.fetchall()
+            ]
+    finally:
+        conn.close()
+
+
+class WorkoutPlanRequest(BaseModel):
+    goal: Optional[str] = None
+    body_part: Optional[str] = None
+    equipment: Optional[str] = None
+    ai: AIConfig
+
+
+@app.post("/generate-workout-plan")
+def generate_workout_plan(req: WorkoutPlanRequest):
+    """Genera una rutina eligiendo SOLO ejercicios reales del catálogo."""
+    candidates = _fetch_exercise_candidates(req.body_part, req.equipment)
+    if not candidates:
+        raise HTTPException(status_code=404, detail="No hay ejercicios que coincidan con el filtro.")
+    valid_ids = {c["id"] for c in candidates}
+    catalogo = json.dumps(candidates, ensure_ascii=False)
+    prompt = (
+        f"{FITNESS_SYSTEM}\nArma una rutina para el objetivo: {req.goal or 'general'}.\n"
+        f"Elige ejercicios SOLO de este catálogo (usa exactamente sus id): {catalogo}\n"
+        "Devuelve SOLO un objeto JSON con esta forma:\n"
+        '{"items": [{"exercise_id": int, "sets": int, "reps": int, "rpe": num}]}'
+    )
+    data = _parse_json_or_502(_run_ai(req.ai, prompt, want_json=True))
+    items = data.get("items")
+    if not isinstance(items, list):
+        raise HTTPException(status_code=502, detail="La rutina no contiene 'items'.")
+    # Descartar ejercicios alucinados (id fuera del catálogo consultado)
+    filtered = [it for it in items if it.get("exercise_id") in valid_ids]
+    return {"items": filtered}
+
+
+class ProgressRequest(BaseModel):
+    summary: dict = Field(..., description="adherencia calórica, macros, volumen semanal")
+    ai: AIConfig
+
+
+@app.post("/analyze-progress")
+def analyze_progress(req: ProgressRequest):
+    """Coach proactivo: analiza el progreso y da recomendaciones accionables."""
+    prompt = (
+        f"{FITNESS_SYSTEM}\nAnaliza este resumen de progreso del usuario y da 2-3 "
+        f"recomendaciones accionables:\n{json.dumps(req.summary, ensure_ascii=False)}"
+    )
+    return {"analysis": _run_ai(req.ai, prompt)}
+
 
 # Configurar el servicio de archivos estáticos para producción si la carpeta existe
 static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
