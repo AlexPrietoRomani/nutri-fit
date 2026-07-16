@@ -581,3 +581,71 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   - `[X]` A11.3.1.1: ADR 10 en `architecture.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
+
+---
+
+## F12: Gestión de Modelos Ollama (selector en vivo + instalación de modelos recomendados) [ ]
+
+> Cierra el bug reportado: `kSuggestedModel['ollama']='llama3.1'` no está instalado en el Ollama real del usuario; el campo de modelo era texto libre. Además, `docker-compose.yml` tiene un servicio `ollama` que compite por el puerto 11434 del host con el Ollama nativo real (el que tiene los modelos instalados).
+> **AC de Fase:** puerto 11434 sin conflicto + `OLLAMA_HOST` default a `host.docker.internal:11434` · `GET /ollama/models` lista modelos reales · `POST /ollama/pull` + `GET /ollama/pull-status` instalan con progreso · desplegable en Ajustes de IA (fallback a texto libre) · sección de recomendados instalables · ADR 11. **NO toca diseno_db.md.**
+
+### SF12.1: Infraestructura (puerto Ollama y default del backend) [ ]
+
+#### T12.1.1: Resolver conflicto de puerto 11434 y corregir `OLLAMA_HOST` [ ]
+- **🧠 Explicación:** El servicio `ollama` de `docker-compose.yml` mapea el puerto 11434 del HOST al contenedor, compitiendo con el Ollama nativo de Windows del usuario que escucha en el mismo puerto y tiene los modelos reales. El backend usa `OLLAMA_HOST` default apuntando al servicio docker — hay que apuntar al Ollama real.
+- **💡 Cómo hacerlo:** en `docker-compose.yml`, quitar el mapeo de puerto del servicio `ollama` (dejar el contenedor sin publicar ese puerto al host; evaluar remover el servicio completo si nada más lo referencia) para liberar el 11434 del host para el Ollama nativo. En `backend/app/ai_engine.py`, cambiar el default de `OLLAMA_HOST` a `http://host.docker.internal:11434` (ya existe `extra_hosts: host.docker.internal:host-gateway` en el servicio backend).
+- **Acciones:**
+  - `[ ]` A12.1.1.1: Quitar/ajustar el mapeo de puerto del servicio `ollama` en `docker-compose.yml` para no competir con el 11434 del host.
+  - `[ ]` A12.1.1.2: Cambiar el default de `OLLAMA_HOST` (backend) a `http://host.docker.internal:11434`.
+- **✅ Tests Unitarios:** N/A (config de infra); verificación manual: `docker compose up`, `curl http://localhost:11434/api/tags` desde el host devuelve los modelos reales (no el contenedor casi vacío).
+- **🎭 Tests de Simulación de Usuario:** N/A (infra).
+
+### SF12.2: Backend — listar e instalar modelos [ ]
+
+#### T12.2.1: `GET /ollama/models` (modelos instalados reales) [ ]
+- **🧠 Explicación:** El desplegable del frontend necesita la lista real de modelos. Ollama expone el endpoint nativo `/api/tags` (no el compatible con OpenAI) en la raíz del host — hay que derivar ese host desde el `base_url` configurado por el usuario, que puede venir con o sin el sufijo `/v1` del modo OpenAI-compatible.
+- **💡 Cómo hacerlo:** en `backend/app/main.py`, una función `_native_ollama_host(base_url)` que recorta el sufijo `/v1` si viene, y un endpoint `GET /ollama/models` que consulte `{host}/api/tags` vía `httpx`, mapee cada entrada a `{name, size}`, y devuelva 503 con detalle si Ollama no responde (nunca un 500 sin manejar).
+- **Acciones:**
+  - `[ ]` A12.2.1.1: `_native_ollama_host` deriva el host nativo (con/sin `/v1`).
+  - `[ ]` A12.2.1.2: `GET /ollama/models` devuelve la lista real; 503 claro si Ollama no responde (no 500).
+- **✅ Tests Unitarios:** con `httpx` mockeado — `base_url` con `/v1` y sin `/v1` derivan el mismo host nativo; respuesta de Ollama se mapea a `{name, size}`; Ollama inalcanzable → 503 con detalle, no excepción sin manejar.
+- **🎭 Tests de Simulación de Usuario:** cubierto por T12.3.1 (desplegable poblado con datos reales).
+
+#### T12.2.2: `POST /ollama/pull` + `GET /ollama/pull-status` (instalar con progreso) [ ]
+- **🧠 Explicación:** Instalar un modelo puede tardar minutos. Se inicia la descarga en background (no bloquea el request) y se expone el progreso vía polling, leyendo el stream NDJSON que devuelve el endpoint nativo de pull de Ollama.
+- **💡 Cómo hacerlo:** en `main.py`, un diccionario en memoria de estado por modelo; una tarea async que hace streaming del pull nativo de Ollama (`stream: true`) y actualiza ese diccionario línea a línea hasta que el status indique éxito; `POST /ollama/pull` la dispara vía `BackgroundTasks` (responde de inmediato, no espera a que termine); `GET /ollama/pull-status?model=...` devuelve el último estado conocido para ese modelo (o "no iniciado" si nunca se pidió).
+- **Acciones:**
+  - `[ ]` A12.2.2.1: `POST /ollama/pull` dispara la descarga en background (no bloquea).
+  - `[ ]` A12.2.2.2: `GET /ollama/pull-status` expone el progreso hasta completarse.
+- **✅ Tests Unitarios:** con el stream de Ollama mockeado (NDJSON de ejemplo) — la tarea de pull actualiza el estado en cada línea y termina en éxito; un error de red deja el estado en error/terminado (no cuelga el polling indefinidamente); consultar el estado de un modelo nunca iniciado devuelve "no iniciado".
+- **🎭 Tests de Simulación de Usuario:** cubierto por T12.3.2 (botón instalar + barra de progreso real).
+
+### SF12.3: Frontend — desplegable + modelos recomendados [ ]
+
+#### T12.3.1: Desplegable de modelos instalados (con fallback a texto libre) [ ]
+- **🧠 Explicación:** Reemplaza el campo de texto de modelo por un desplegable cuando el proveedor es `ollama` y la consulta a `/ollama/models` tuvo éxito; si falla (Ollama no alcanzable), se mantiene el campo de texto de hoy — nunca bloquea el flujo de configurar otro proveedor.
+- **💡 Cómo hacerlo:** en `ai_settings_screen.dart`, al entrar o cambiar la URL base con proveedor `ollama`, llamar al nuevo endpoint de listado; si responde con modelos, renderizar un desplegable poblado con esos nombres (preseleccionando el modelo actual si está en la lista); si falla o la lista viene vacía, renderizar el campo de texto existente sin cambios.
+- **Acciones:**
+  - `[ ]` A12.3.1.1: Llamada al endpoint de modelos al entrar/cambiar la URL base con proveedor `ollama`.
+  - `[ ]` A12.3.1.2: Desplegable poblado con fallback al campo de texto libre si falla.
+- **✅ Tests Unitarios:** widget test — con el cliente HTTP mockeado devolviendo modelos, aparece el desplegable con esos nombres; con la llamada fallando, aparece el campo de texto de siempre.
+- **🎭 Tests de Simulación de Usuario:** abrir Ajustes de IA, elegir `ollama`, ver el desplegable con los modelos reales del Ollama del usuario (no un modelo inventado que no tiene instalado).
+
+#### T12.3.2: Sección "Modelos recomendados" con instalación y progreso [ ]
+- **🧠 Explicación:** Lista curada de modelos multi-propósito razonables para esta app (chat, generación de rutinas/planes JSON, visión). Cada uno no presente en la lista instalada muestra un botón de instalar; al pulsar, dispara la descarga y sondea el progreso hasta terminar, mostrando una barra/spinner, y al terminar refresca el desplegable de T12.3.1.
+- **💡 Cómo hacerlo:** una constante con la lista curada (p. ej. `gemma4:e4b`, `llama3.2:3b`, `qwen2.5:3b`) en `ai_config.dart`; en `ai_settings_screen.dart`, una sección con un ítem por modelo recomendado y botón de instalar (oculto si ya está en la lista de instalados) que dispara el pull y sondea el estado cada 2-3s hasta completarse.
+- **Acciones:**
+  - `[ ]` A12.3.2.1: Lista curada de modelos recomendados + UI de la sección con estado instalado/no instalado.
+  - `[ ]` A12.3.2.2: Botón de instalar → dispara el pull + sondeo de progreso hasta completar + refresco del desplegable.
+- **✅ Tests Unitarios:** widget test — un modelo recomendado ya instalado no muestra botón de instalar; uno no instalado sí; al pulsarlo (con HTTP mockeado) se dispara la petición y se refleja el progreso hasta completarse.
+- **🎭 Tests de Simulación de Usuario:** con el Ollama real del usuario, pulsar instalar en un modelo recomendado no instalado, ver el progreso, y que al terminar aparezca seleccionable en el desplegable de T12.3.1.
+
+### SF12.4: Documentación [ ]
+
+#### T12.4.1: ADR 11 en `architecture.md` [ ]
+- **🧠 Explicación:** Documentar el hallazgo de infraestructura (conflicto de puerto 11434), la decisión de listar/instalar modelos vía backend (no directo desde el navegador), y el flujo completo.
+- **💡 Cómo hacerlo:** ADR 11 con contexto (bug de modelo no instalado + descubrimiento del conflicto de puerto), decisión (backend como intermediario, `OLLAMA_HOST` corregido, servicio `ollama` de compose sin publicar el puerto), y el flujo listar→elegir/instalar→chat.
+- **Acciones:**
+  - `[ ]` A12.4.1.1: ADR 11 en `architecture.md`.
+- **✅ Tests Unitarios:** N/A (docs).
+- **🎭 Tests de Simulación de Usuario:** N/A (docs).
