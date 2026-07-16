@@ -9,7 +9,22 @@ import psycopg2
 
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.ai_engine import AIConfig, generate as ai_generate, AIEngineError
+from app.ai_engine import (
+    AIConfig,
+    generate as ai_generate,
+    generate_vision as ai_generate_vision,
+    AIEngineError,
+)
+
+
+def _parse_ai_config(ai_json):
+    """Parsea el JSON de AIConfig que llega en el form (o None)."""
+    if not ai_json:
+        return None
+    try:
+        return AIConfig(**json.loads(ai_json))
+    except Exception:
+        return None
 
 app = FastAPI(
     title="Nutri-Fit AI Backend",
@@ -120,33 +135,43 @@ async def get_image_base64(image_url: Optional[str], file: Optional[UploadFile])
 @app.post("/analyze-meal", response_model=MealAnalysisResponse)
 async def analyze_meal(
     image_url: Optional[str] = Form(None),
-    file: Optional[UploadFile] = File(None)
+    file: Optional[UploadFile] = File(None),
+    ai: Optional[str] = Form(None),
 ):
     """
     Analiza la foto de una comida y estima sus ingredientes, calorías y macronutrientes.
-    Si Ollama está disponible, realiza la consulta al modelo multimodal local (ej. llava).
-    De lo contrario, retorna un mock estructurado en base a heurísticas sencillas.
+    Si el cliente envía una AIConfig (F9), usa la visión multi-proveedor; si no, intenta
+    Ollama (llava) y, en último caso, retorna un mock estructurado.
     """
     # Obtener imagen en base64
     image_b64 = await get_image_base64(image_url, file)
-    
-    # Intentar invocar a Ollama
+
+    prompt = (
+        "Analyze this meal image. Identify the food items and estimate the total "
+        "calories (kcal), protein (g), carbohydrates (g), and fat (g).\n"
+        "You must return ONLY a JSON object with this exact structure:\n"
+        "{\n"
+        '  "food_items": ["item1", "item2"],\n'
+        '  "calories": 350,\n'
+        '  "protein": 20.0,\n'
+        '  "carbohydrates": 40.0,\n'
+        '  "fat": 10.0,\n'
+        '  "confidence_score": 0.85,\n'
+        '  "notes": "Brief explanation or description of the meal."\n'
+        "}"
+    )
+
+    # Rama multi-proveedor (F9): si el cliente envió su config, úsala.
+    cfg = _parse_ai_config(ai)
+    if cfg is not None:
+        try:
+            text = ai_generate_vision(cfg, prompt, image_b64, want_json=True)
+            return MealAnalysisResponse(**json.loads(text))
+        except Exception:
+            pass  # cae al fallback Ollama/mock
+
+    # Intentar invocar a Ollama (llava)
     try:
-        prompt = (
-            "Analyze this meal image. Identify the food items and estimate the total "
-            "calories (kcal), protein (g), carbohydrates (g), and fat (g).\n"
-            "You must return ONLY a JSON object with this exact structure:\n"
-            "{\n"
-            '  "food_items": ["item1", "item2"],\n'
-            '  "calories": 350,\n'
-            '  "protein": 20.0,\n'
-            '  "carbohydrates": 40.0,\n'
-            '  "fat": 10.0,\n'
-            '  "confidence_score": 0.85,\n'
-            '  "notes": "Brief explanation or description of the meal."\n'
-            "}"
-        )
-        
         payload = {
             "model": OLLAMA_MODEL,
             "prompt": prompt,
@@ -161,7 +186,6 @@ async def analyze_meal(
             if response.status_code == 200:
                 result = response.json()
                 response_text = result.get("response", "")
-                import json
                 parsed_json = json.loads(response_text)
                 return MealAnalysisResponse(**parsed_json)
     except Exception:
@@ -182,32 +206,42 @@ async def analyze_meal(
 @app.post("/identify-machine", response_model=MachineIdentificationResponse)
 async def identify_machine(
     image_url: Optional[str] = Form(None),
-    file: Optional[UploadFile] = File(None)
+    file: Optional[UploadFile] = File(None),
+    ai: Optional[str] = Form(None),
 ):
     """
-    Identifica la máquina de gimnasio a partir de una foto y retorna detalles y ejercicios asociados.
-    Si Ollama está disponible, realiza la consulta al modelo multimodal local (ej. llava).
-    De lo contrario, retorna un mock estructurado.
+    Identifica la máquina de gimnasio a partir de una foto y retorna detalles y ejercicios.
+    Si el cliente envía una AIConfig (F9), usa la visión multi-proveedor; si no, intenta
+    Ollama (llava) y, en último caso, retorna un mock estructurado.
     """
     # Obtener imagen en base64
     image_b64 = await get_image_base64(image_url, file)
-    
-    # Intentar invocar a Ollama
+
+    prompt = (
+        "Analyze this gym machine image. Identify the gym machine, describe its use, "
+        "list target muscle groups, and provide a list of exercises associated with it.\n"
+        "You must return ONLY a JSON object with this exact structure:\n"
+        "{\n"
+        '  "machine_name": "Name of the machine",\n'
+        '  "description": "How the machine works and what it is used for",\n'
+        '  "target_muscles": ["muscle1", "muscle2"],\n'
+        '  "associated_exercises": ["exercise1", "exercise2"],\n'
+        '  "safety_tips": ["tip1", "tip2"],\n'
+        '  "confidence_score": 0.90\n'
+        "}"
+    )
+
+    # Rama multi-proveedor (F9)
+    cfg = _parse_ai_config(ai)
+    if cfg is not None:
+        try:
+            text = ai_generate_vision(cfg, prompt, image_b64, want_json=True)
+            return MachineIdentificationResponse(**json.loads(text))
+        except Exception:
+            pass
+
+    # Intentar invocar a Ollama (llava)
     try:
-        prompt = (
-            "Analyze this gym machine image. Identify the gym machine, describe its use, "
-            "list target muscle groups, and provide a list of exercises associated with it.\n"
-            "You must return ONLY a JSON object with this exact structure:\n"
-            "{\n"
-            '  "machine_name": "Name of the machine",\n'
-            '  "description": "How the machine works and what it is used for",\n'
-            '  "target_muscles": ["muscle1", "muscle2"],\n'
-            '  "associated_exercises": ["exercise1", "exercise2"],\n'
-            '  "safety_tips": ["tip1", "tip2"],\n'
-            '  "confidence_score": 0.90\n'
-            "}"
-        )
-        
         payload = {
             "model": OLLAMA_MODEL,
             "prompt": prompt,
@@ -222,7 +256,6 @@ async def identify_machine(
             if response.status_code == 200:
                 result = response.json()
                 response_text = result.get("response", "")
-                import json
                 parsed_json = json.loads(response_text)
                 return MachineIdentificationResponse(**parsed_json)
     except Exception:

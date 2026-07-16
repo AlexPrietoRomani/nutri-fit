@@ -68,3 +68,13 @@ Registro forense de bugs, bloqueos y refactors. Formato: síntoma → hipótesis
 - **Resolución:** El gate ahora consulta `public.users` por `client.auth.currentUser?.id ?? AppConstants.devUserId`. Con perfil → `DashboardScreen`; sin perfil → `OnboardingScreen`. El onboarding ya usaba `pushReplacementNamed('/dashboard')`, así que volver a `/` re-resuelve al Dashboard.
 - **Verificación:** E2E web (Playwright) cargando la raíz `/` con el perfil `devUserId` presente → renderiza el Dashboard directamente (`e2e/shots/initcheck-root.png`), sin pasar por el registro.
 - **Lecciones:** Con bypass de auth, cualquier decisión de sesión (gate inicial, "tengo perfil") debe basarse en el `devUserId`, no en `auth.currentUser`. Relacionado con INC-003 (mismo origen: el bypass de auth).
+
+## 2026-07-16 · INC-007 · Se perdió el detalle F7/F8 del tablero al mover ramas (estaba gitignored)
+
+- **Severidad:** Media (pérdida de artefactos de proceso) · **Estado:** RESUELTO
+- **Contexto:** Tras mergear el PR #1, se movieron los commits a una rama de feature y se hizo `git checkout master` + `git merge --ff-only`.
+- **Síntoma:** `docs/plan/plan_maestro.md` y `docs/task/tareas.md` desaparecieron del disco; el detalle de F7/F8 (que solo existía localmente) se perdió.
+- **Causa raíz:** Ambos archivos estaban **gitignored** (decisión previa) — nunca entraron al PR. Pero en `master`(`7f7333d`) SÍ estaban trackeados; el `checkout master` restauró la versión vieja (F1–F6) sobre las locales F1–F8, y el merge (que incluye el `git rm --cached`) los eliminó del working tree. Al estar ignorados, git no los protegía.
+- **Resolución:** Se restauraron `plan_maestro.md`/`tareas.md` desde `7f7333d`, se reconstruyeron F7/F8 (desde los commits/PR) y se añadió F9. **Se dejó de ignorarlos**: ahora `docs/plan` y `docs/task` se versionan, así ninguna operación de rama vuelve a borrarlos.
+- **Verificación:** Los archivos existen, contienen F1–F9, y `git status` los muestra como trackeados.
+- **Lecciones:** No gitignorar artefactos que quieres conservar entre operaciones de rama — un archivo ignorado no está protegido por git y puede ser clobbered por checkouts/merges que toquen su ruta. El tablero spec-driven vale la pena versionarlo.
