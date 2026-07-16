@@ -99,9 +99,8 @@ release/
 .promptfoo/
 
 # Agent Documentation & Planning
-# Planning & task board (gestionados por project-suite, NO versionar)
-docs/plan/
-docs/task/
+# NOTA: docs/plan y docs/task SÍ se versionan (antes estaban ignorados; se
+# perdió el detalle F7/F8 al mover ramas — ver INC-007. Ahora van en git).
 CLAUDE.md
 AGENTS.md
 PLAN.md
