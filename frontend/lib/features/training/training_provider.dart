@@ -517,6 +517,29 @@ class TrainingProvider extends ChangeNotifier {
     }
   }
 
+  /// Puebla el estado de sesión activa directamente, sin pasar por Supabase.
+  /// Seam de test análogo a `fetchOverride`/`buildSetsFromRoutineItems`: evita
+  /// instanciar un `SupabaseClient` real (INC-015) para montar
+  /// `ActiveWorkoutScreen` en widget tests.
+  @visibleForTesting
+  void debugSetActiveStateForTest({
+    required List<Exercise> exercises,
+    required WorkoutSession session,
+    required List<WorkoutSet> sets,
+    required Set<int> exerciseIds,
+  }) {
+    _exercises = exercises;
+    _activeSession = session;
+    _activeSets
+      ..clear()
+      ..addAll(sets);
+    _activeExercisesIds
+      ..clear()
+      ..addAll(exerciseIds);
+    _activeStartTime = DateTime.now();
+    notifyListeners();
+  }
+
   /// Cancelar el entrenamiento actual sin guardar.
   void cancelActiveWorkout() {
     _activeSession = null;
