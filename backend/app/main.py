@@ -396,7 +396,12 @@ def _build_workout_plan(ai: AIConfig, goal: Optional[str], body_part: Optional[s
     if not isinstance(items, list):
         raise HTTPException(status_code=502, detail="La rutina no contiene 'items'.")
     # Descartar ejercicios alucinados (id fuera del catálogo consultado)
-    filtered = [it for it in items if it.get("exercise_id") in valid_ids]
+    names_by_id = {c["id"]: c["name"] for c in candidates}
+    filtered = [
+        {**it, "name": names_by_id[it["exercise_id"]]}
+        for it in items
+        if it.get("exercise_id") in valid_ids
+    ]
     return {"items": filtered}
 
 
