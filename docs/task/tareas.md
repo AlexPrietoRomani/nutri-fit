@@ -1100,3 +1100,83 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   - `[X]` A16.6.1.2: `nutrition.meal_plans` + `is_default` (en `meal_plans` y `training.routines`) en `diseno_db.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
+
+---
+
+## F17: Cardio con METs + Búsqueda de Ejercicios por Músculo + Catálogo de Comida Peruana [X]
+
+> 3 frentes sobre datos: (1) el cardio existe pero su gasto es plano → cálculo por METs con peso real y ritmo; (2) "Agregar ejercicio" sin buscador → búsqueda + filtro por músculo (datos `body_part`/`secondary_muscles` ya existen); (3) sin dataset de comida → catálogo curado de platos peruanos (híbrido con OpenFoodFacts ya integrado).
+> **AC de Fase:** `public.users.weight_kg` + `workout_sets.duration_min`/`distance_km` + `nutrition.food_catalog` (≥40 platos, lectura pública) · peso persistido en onboarding · input cardio (tiempo+distancia) · `todayCaloriesBurned` por METs · buscador+filtro por músculo · buscador de comida en el Diario · ADR 15. **Requiere `docker compose down -v`.**
+
+### SF17.1: Esquema (DB) [X]
+
+#### T17.1.1: `weight_kg` + columnas de cardio en `workout_sets` [X]
+- **🧠 Explicación:** El peso del usuario se captura en el onboarding pero se descarta (solo BMR local); el MET lo necesita. `workout_sets` no tiene dónde guardar tiempo/distancia de cardio.
+- **💡 Cómo hacerlo:** nuevo archivo `docker/postgres/zzzz4_cardio_and_weight.sql` con `ALTER TABLE public.users ADD COLUMN IF NOT EXISTS weight_kg REAL;` y `ALTER TABLE training.workout_sets ADD COLUMN IF NOT EXISTS duration_min REAL; ... distance_km REAL;`. Montar en `docker-compose.yml` tras `zzzz3_meal_plans.sql`. Nullable (fuerza las deja NULL).
+- **Acciones:**
+  - `[X]` A17.1.1.1: `public.users.weight_kg` (nullable REAL).
+  - `[X]` A17.1.1.2: `training.workout_sets.duration_min`/`distance_km` (nullable REAL).
+- **✅ Tests Unitarios:** columnas existen tras `up`; RLS de `users`/`workout_sets` sin cambios.
+- **🎭 Tests de Simulación de Usuario:** N/A (cubierto por SF17.2).
+
+#### T17.1.2: `nutrition.food_catalog` + seed de platos peruanos [X]
+- **🧠 Explicación:** Catálogo curado de comida peruana (lectura pública, como `training.exercises` — sin dueño, sin RLS restrictivo). Macros = estimaciones documentadas.
+- **💡 Cómo hacerlo:** `CREATE TABLE nutrition.food_catalog (id, name, category, calories, protein_g, carbs_g, fat_g, serving_size_g)` + `GRANT SELECT ... TO anon, authenticated` + INSERTs de ≥40 platos peruanos (arroz con pollo, ceviche, lomo saltado, pollo a la brasa, ají de gallina, causa, turrón, etc.) con macros aprox por porción. En un `.sql` de init nuevo.
+- **Acciones:**
+  - `[X]` A17.1.2.1: Tabla `nutrition.food_catalog` + `GRANT SELECT` público.
+  - `[X]` A17.1.2.2: Seed de 50 platos peruanos con macros aproximadas. Verificado: 14/14 E2E (lectura pública sin token).
+- **✅ Tests Unitarios:** `count >= 40`; accesible sin token (extender `test_auth_rls_e2e.sh`, como el caso de `exercises`).
+- **🎭 Tests de Simulación de Usuario:** cubierto por SF17.4.
+
+### SF17.2: Cardio con METs [X]
+
+#### T17.2.1: Persistir `weight_kg` en el onboarding/perfil [X]
+- **🧠 Explicación:** El onboarding ya captura `_weightKg`; hay que incluirlo en el INSERT/UPSERT a `public.users` (hoy no se guarda) y leerlo en el perfil.
+- **💡 Cómo hacerlo:** en `onboarding_provider.dart` (`saveProfile()`), añadir `'weight_kg': _weightKg` al `insert`. En `loadProfile()`, leer `weight_kg`. Getter accesible para el cálculo MET.
+- **Acciones:**
+  - `[X]` A17.2.1.1: `saveProfile` guarda `weight_kg`.
+  - `[X]` A17.2.1.2: `loadProfile` lo lee + getter accesible.
+- **✅ Tests Unitarios:** el payload de `saveProfile` incluye `weight_kg`.
+- **🎭 Tests de Simulación de Usuario:** completar onboarding → peso persistido en `public.users`.
+
+#### T17.2.2: Input de cardio + `todayCaloriesBurned` por METs [X]
+- **🧠 Explicación:** Un ejercicio `category='cardio'` en el tracker pide tiempo+distancia (no peso/reps). Gasto por METs (kcal = MET × peso_kg × horas); para cardio el MET sale del ritmo (km/h → MET vía umbrales del Compendium); fuerza mantiene estimación por duración.
+- **💡 Cómo hacerlo:** en `active_workout_screen.dart`, si `exercise.category == 'cardio'`, campos "Tiempo (min)"/"Distancia (km)" en vez de peso/reps (persistir en `duration_min`/`distance_km`). En `training_provider.dart`, `metFromSpeed(distance_km/(duration_min/60))` + `kcal = met * weightKg * (duration_min/60)` para cardio; resto por duración. Peso del perfil (T17.2.1); default 70 con comentario si falta.
+- **Acciones:**
+  - `[X]` A17.2.2.1: UI de tiempo+distancia para cardio; persistir en `workout_sets`.
+  - `[X]` A17.2.2.2: `metFromSpeed` + `caloriesBurnedForSessions` por METs (cardio por ritmo, fuerza por duración). Verificado: 30min/5km > 20min/2km, fuerza no cae a 0.
+- **✅ Tests Unitarios:** 30 min/5 km > 20 min/2 km en kcal; correr > caminar en MET; sesión de solo fuerza no cae a 0.
+- **🎭 Tests de Simulación de Usuario:** registrar "Running, Treadmill" 30 min/5 km → kcal coherentes y distintas a 20 min/2 km.
+
+### SF17.3: Búsqueda y filtro de ejercicios por músculo [X]
+
+#### T17.3.1: Box de búsqueda + filtro por músculo en "Agregar ejercicio" [X]
+- **🧠 Explicación:** `_showAddExerciseModal` lista 873 ejercicios sin buscador. Los datos ya permiten filtrar: `name`, `bodyPart`, `secondaryMuscles` (tags). Frontend puro sobre `provider.exercises`.
+- **💡 Cómo hacerlo:** un `TextField` de búsqueda + filtro por músculo (`FilterChip`/dropdown de `body_part` distintos); el `ListView` filtra por `name.contains(query)` y/o `bodyPart == muscle || secondaryMuscles.contains(muscle)`. Mostrar `secondaryMuscles` como chips en cada `ListTile`. Mantener miniatura/detalle.
+- **Acciones:**
+  - `[X]` A17.3.1.1: `TextField` de búsqueda por nombre.
+  - `[X]` A17.3.1.2: Filtro por músculo (FilterChip de body_part + "Todos") + tags de secondary_muscles por ejercicio.
+- **✅ Tests Unitarios:** query "press" → solo lo que matchea; filtro "chest" → solo pecho.
+- **🎭 Tests de Simulación de Usuario:** buscar "running" → aparece el cardio; filtrar "chest" → solo pecho.
+
+### SF17.4: Catálogo de comida en el Diario [X]
+
+#### T17.4.1: Buscador de `food_catalog` al agregar comida [X]
+- **🧠 Explicación:** Además de manual/cámara/escáner, un buscador contra el catálogo curado peruano que prellena nombre+macros.
+- **💡 Cómo hacerlo:** en `nutrition_provider.dart`, `searchFoodCatalog(query)` → `client.schema('nutrition').from('food_catalog').select().ilike('name','%q%')`. En `diary_screen.dart`, opción "Buscar en catálogo" → al elegir, prellena el diálogo de borrador existente (el de la cámara IA) → `addFoodLog`. Reusar el diálogo, no crear uno nuevo.
+- **Acciones:**
+  - `[X]` A17.4.1.1: `searchFoodCatalog` en el provider (ilike, seam de test).
+  - `[X]` A17.4.1.2: Vía "Buscar en catálogo" que reusa el borrador existente → `addFoodLog`. Verificado: 14/14 archivos, build web OK.
+- **✅ Tests Unitarios:** `searchFoodCatalog` arma la query `ilike` correcta (seam mockeado); elegir un resultado prellena el borrador.
+- **🎭 Tests de Simulación de Usuario:** buscar "arroz con pollo" → prellena macros → guardar → aparece en el día.
+
+### SF17.5: Documentación [X]
+
+#### T17.5.1: ADR 15 + esquema en `diseno_db.md` [X]
+- **🧠 Explicación:** Documentar el cálculo MET, el catálogo híbrido de comida, y las columnas nuevas.
+- **💡 Cómo hacerlo:** ADR 15 en `architecture.md`; `weight_kg`/`workout_sets` cardio cols/`food_catalog` en `diseno_db.md`.
+- **Acciones:**
+  - `[X]` A17.5.1.1: ADR 15 en `architecture.md`.
+  - `[X]` A17.5.1.2: `weight_kg` + cardio cols + `food_catalog` en `diseno_db.md`.
+- **✅ Tests Unitarios:** N/A (docs).
+- **🎭 Tests de Simulación de Usuario:** N/A (docs).

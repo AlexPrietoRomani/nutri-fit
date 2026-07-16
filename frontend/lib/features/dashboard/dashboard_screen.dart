@@ -50,7 +50,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final double consumedCalories = nutritionProv.totalCalories;
     
     // Calorías quemadas (de los entrenamientos completados hoy)
-    final double burnedCalories = trainingProv.todayCaloriesBurned;
+    final double burnedCalories = trainingProv.caloriesBurnedToday(onboardingProv.weightKg);
 
     // Balance Calórico: Objetivo - Ingerido + Quemado (esto representa el saldo restante disponible)
     // O de otra forma: Ingerido - Quemado vs Objetivo.

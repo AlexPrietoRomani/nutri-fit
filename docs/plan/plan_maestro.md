@@ -268,3 +268,31 @@ Este documento detalla la planificación del desarrollo de Nutri-Fit, incluyendo
   - T16.5.1: Sección con rutina default (¿hecha hoy?) y plan de comida default (planificado vs consumido).
 - **F16.SF6: Documentación**
   - T16.6.1: ADR 14 en `architecture.md` + `nutrition.meal_plans`/`is_default` en `diseno_db.md`.
+
+### Fase 17: Cardio con METs + Búsqueda de Ejercicios por Músculo + Catálogo de Comida Peruana
+- **Macro-objetivo:** Tres mejoras sobre datos: (1) el cardio (correr/caminar/bici) SÍ existe en el catálogo pero su gasto calórico es plano (6 cal/min) — se calcula por METs según ritmo real usando el peso del usuario; (2) el "Agregar ejercicio" es una lista plana de 873 ítems sin buscador — se añade búsqueda por nombre y filtro por músculo (los datos `body_part`/`secondary_muscles` ya existen); (3) no hay dataset de comida — se añade un catálogo curado de platos peruanos (híbrido con el OpenFoodFacts ya integrado).
+- **Entregable global:** al registrar cardio se ingresa tiempo+distancia y el gasto calórico varía por ritmo; el "Agregar ejercicio" tiene buscador + filtro por músculo con tags; el Diario permite buscar platos peruanos de un catálogo curado además de las vías ya existentes.
+- **Decisiones de esquema/diseño:** `public.users.weight_kg` (el onboarding ya captura el peso pero lo descarta — se persiste, necesario para METs); `training.workout_sets` gana columnas nullable `duration_min`/`distance_km` (para cardio; fuerza las deja NULL); `nutrition.food_catalog` (catálogo curado de platos peruanos, lectura pública, mismo patrón que `training.exercises`). MET por fórmula estándar del Compendium (kcal = MET × peso_kg × horas; MET del cardio derivado del ritmo distancia/tiempo). Los macros del seed peruano son estimaciones documentadas como tales.
+- **Criterios de Aceptación (AC):**
+  - **AC1 (DB):** `public.users.weight_kg` (nullable, REAL); `training.workout_sets.duration_min`/`distance_km` (nullable); `nutrition.food_catalog` (id, name, calories, protein_g, carbs_g, fat_g, serving_size_g, category) poblada por seed con ≥40 platos peruanos, lectura pública (`GRANT SELECT` a anon/authenticated).
+  - **AC2 (peso persistido):** el onboarding guarda `weight_kg` en `public.users`; el perfil lo lee.
+  - **AC3 (cardio input):** en `ActiveWorkoutScreen`, un ejercicio `category='cardio'` muestra campos tiempo (min) + distancia (km) en vez de peso/reps; se persisten en `workout_sets`.
+  - **AC4 (gasto por METs):** `todayCaloriesBurned` se calcula por METs con el peso real; el cardio usa el ritmo (distancia/tiempo → MET), de modo que correr rápido/más tiempo da más kcal que caminar poco; la fuerza mantiene su estimación por duración. Verificable: dos sesiones de cardio con distinto ritmo dan kcal distintas.
+  - **AC5 (búsqueda ejercicios):** la hoja "Agregar ejercicio" tiene un box de búsqueda por nombre y un filtro por músculo (`body_part` + `secondary_muscles` como tags); filtra sobre `provider.exercises` ya cargado, sin tocar DB.
+  - **AC6 (catálogo comida):** al agregar comida en el Diario, un buscador contra `nutrition.food_catalog` prellena nombre+macros → `addFoodLog`; convive con las vías ya existentes (manual, cámara IA, escáner de barras).
+  - **AC7 (docs):** ADR 15 en `architecture.md`; `weight_kg`/`workout_sets` cardio cols/`food_catalog` en `diseno_db.md`.
+- **Estrategia de Pruebas (nivel Fase):**
+  - **Tests Unitarios:** cálculo MET (varios ritmos → kcal correctas por fórmula; fuerza sin cardio usa la estimación por duración); RLS/GRANT del catálogo de comida (lectura pública, con JWT reales extendiendo `test_auth_rls_e2e.sh`); filtro de ejercicios por nombre/músculo (dado un query, devuelve el subconjunto correcto); búsqueda de comida puebla el borrador con los macros del catálogo.
+  - **Tests de Simulación de Usuario:** registrar "Running, Treadmill" 30 min / 5 km → ver kcal quemadas coherentes (y distintas a 20 min / 2 km); buscar "press" en Agregar ejercicio → aparece solo lo que matchea; filtrar por "chest" → solo pecho; en el Diario buscar "arroz con pollo" → prellena macros → guardar.
+- **F17.SF1: Esquema (DB)**
+  - T17.1.1: `public.users.weight_kg` + `training.workout_sets.duration_min`/`distance_km` (nullable).
+  - T17.1.2: `nutrition.food_catalog` + seed curado de platos peruanos (≥40), lectura pública.
+- **F17.SF2: Cardio con METs**
+  - T17.2.1: Persistir `weight_kg` en el onboarding/perfil.
+  - T17.2.2: Input de tiempo+distancia para cardio en `ActiveWorkoutScreen`; cálculo de `todayCaloriesBurned` por METs (cardio por ritmo, fuerza por duración).
+- **F17.SF3: Búsqueda y filtro de ejercicios por músculo**
+  - T17.3.1: Box de búsqueda por nombre + filtro por músculo (tags) en la hoja "Agregar ejercicio".
+- **F17.SF4: Catálogo de comida en el Diario**
+  - T17.4.1: Buscador contra `nutrition.food_catalog` al agregar comida → prellena → `addFoodLog`.
+- **F17.SF5: Documentación**
+  - T17.5.1: ADR 15 en `architecture.md` + esquema nuevo en `diseno_db.md`.

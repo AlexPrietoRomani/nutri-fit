@@ -111,6 +111,54 @@ void main() {
     });
   });
 
+  group('TrainingProvider.metFromSpeed (T17.2.2)', () {
+    test('el MET crece con la velocidad: caminar < trotar < correr', () {
+      final caminar = TrainingProvider.metFromSpeed(5.0);
+      final trotar = TrainingProvider.metFromSpeed(7.0);
+      final correr = TrainingProvider.metFromSpeed(10.0);
+      expect(caminar < trotar, isTrue);
+      expect(trotar < correr, isTrue);
+    });
+
+    test('velocidad <= 0 da MET 0', () {
+      expect(TrainingProvider.metFromSpeed(0), 0);
+    });
+  });
+
+  group('TrainingProvider.caloriesBurnedForSessions (T17.2.2)', () {
+    WorkoutSession session(String id) => WorkoutSession(
+          id: id,
+          userId: 'u1',
+          startedAt: DateTime(2026, 1, 1, 10, 0),
+          endedAt: DateTime(2026, 1, 1, 10, 30),
+          name: 'S',
+        );
+
+    test('cardio 30min/5km quema MÁS que 20min/2km', () {
+      final rapido = TrainingProvider.caloriesBurnedForSessions(
+        70,
+        [session('s1')],
+        [WorkoutSet(sessionId: 's1', exerciseId: 1, setNumber: 1, weight: 0, reps: 0, durationMin: 30, distanceKm: 5)],
+      );
+      final lento = TrainingProvider.caloriesBurnedForSessions(
+        70,
+        [session('s2')],
+        [WorkoutSet(sessionId: 's2', exerciseId: 1, setNumber: 1, weight: 0, reps: 0, durationMin: 20, distanceKm: 2)],
+      );
+      expect(rapido > lento, isTrue);
+    });
+
+    test('una sesión de solo fuerza (sin cardio) NO da 0', () {
+      final kcal = TrainingProvider.caloriesBurnedForSessions(
+        70,
+        [session('s3')],
+        [WorkoutSet(sessionId: 's3', exerciseId: 1, setNumber: 1, weight: 100, reps: 5)],
+      );
+      // 30 min * 6 kcal/min = 180
+      expect(kcal, 180.0);
+    });
+  });
+
   group('Exercise.fromJson (dataset free-exercise-db)', () {
     test('parsea todos los campos nuevos (arrays + jsonb)', () {
       final exercise = Exercise.fromJson({

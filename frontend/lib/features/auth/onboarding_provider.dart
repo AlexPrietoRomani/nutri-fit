@@ -154,6 +154,7 @@ class OnboardingProvider extends ChangeNotifier {
         _name = (u['name'] as String?) ?? _name;
         _gender = (u['gender'] as String?) ?? _gender;
         _heightCm = (u['height_cm'] as num?)?.toDouble() ?? _heightCm;
+        _weightKg = (u['weight_kg'] as num?)?.toDouble() ?? _weightKg;
         _bodyType = (u['body_type'] as String?) ?? _bodyType;
         _palLevel = (u['pal_level'] as num?)?.toDouble() ?? _palLevel;
         final bd = u['birth_date'] as String?;
@@ -178,6 +179,20 @@ class OnboardingProvider extends ChangeNotifier {
     }
   }
 
+  /// Construye el payload de `public.users` para el upsert. Función pura
+  /// (sin Supabase) para poder verificar en tests que incluye `weight_kg`.
+  @visibleForTesting
+  Map<String, dynamic> buildUserPayload(String userId) => {
+        'id': userId,
+        'name': _name.isEmpty ? 'Usuario' : _name,
+        'birth_date': _birthDate.toIso8601String().substring(0, 10), // YYYY-MM-DD
+        'gender': _gender,
+        'height_cm': _heightCm,
+        'weight_kg': _weightKg,
+        'body_type': _bodyType,
+        'pal_level': _palLevel,
+      };
+
   /// Inserts/saves the onboarding configuration to Supabase db.
   Future<bool> saveProfile(BuildContext context) async {
     _isLoading = true;
@@ -190,15 +205,7 @@ class OnboardingProvider extends ChangeNotifier {
       final userId = client.auth.currentUser!.id;
 
       // 1. Insert into public.users
-      await client.from('users').upsert({
-        'id': userId,
-        'name': _name.isEmpty ? 'Usuario' : _name,
-        'birth_date': _birthDate.toIso8601String().substring(0, 10), // YYYY-MM-DD
-        'gender': _gender,
-        'height_cm': _heightCm,
-        'body_type': _bodyType,
-        'pal_level': _palLevel,
-      });
+      await client.from('users').upsert(buildUserPayload(userId));
 
       // 2. Insert into nutrition.user_goals
       await client.schema('nutrition').from('user_goals').upsert({
