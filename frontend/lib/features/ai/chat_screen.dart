@@ -1,15 +1,23 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/supabase_config.dart';
 import 'ai_provider.dart';
 import 'ai_settings_screen.dart';
 
 /// Pantalla de chat con el asistente de IA.
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, this.embedded = false});
+  const ChatScreen({super.key, this.embedded = false, this.saveRoutineOverride});
 
   /// true cuando se abre dentro de un [showModalBottomSheet] (ChatFab).
   final bool embedded;
+
+  /// Permite inyectar un guardado falso en tests, sin levantar un
+  /// [SupabaseClient] real (auth + realtime + isolate de JSON), que en el
+  /// entorno de test se cuelga al spawnear el isolate. En producción se usa
+  /// el INSERT real contra `training.routines` vía [SupabaseConfig.client].
+  final Future<void> Function(String name, Map<String, dynamic> workout)? saveRoutineOverride;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -192,6 +200,59 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// Guarda la rutina sugerida en `training.routines` (T13.2.1). Pide un
+  /// nombre por diálogo y hace el INSERT real; antes de esto el chat solo
+  /// mostraba la tarjeta sin ninguna forma de persistirla.
+  Future<void> _saveRoutine(Map<String, dynamic> workout) async {
+    final now = DateTime.now();
+    final nameCtrl = TextEditingController(text: "Rutina IA ${now.day}/${now.month}");
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Guardar rutina'),
+        content: TextField(
+          key: const Key('save_routine_name_field'),
+          controller: nameCtrl,
+          decoration: const InputDecoration(labelText: 'Nombre de la rutina'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(
+            key: const Key('save_routine_confirm_button'),
+            onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+
+    try {
+      if (widget.saveRoutineOverride != null) {
+        await widget.saveRoutineOverride!(name, workout);
+      } else {
+        final client = SupabaseConfig.client;
+        final userId = client.auth.currentUser!.id;
+        await client.schema('training').from('routines').insert({
+          'user_id': userId,
+          'name': name,
+          'source': 'ai',
+          'items': workout['items'],
+          'cardio_block': workout['cardio_block'],
+        });
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Rutina guardada — ya aparece en Entrenamiento')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo guardar la rutina: $e')),
+      );
+    }
+  }
+
   Widget _buildWorkoutCard(Map<String, dynamic> workout) {
     final items = (workout['items'] as List?) ?? [];
     final cardioBlock = workout['cardio_block']?.toString();
@@ -235,6 +296,18 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 16, 0),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  key: const Key('save_routine_button'),
+                  icon: const Icon(Icons.save_outlined, size: 18, color: Color(0xFF2ED573)),
+                  label: const Text('Guardar rutina', style: TextStyle(color: Color(0xFF2ED573))),
+                  onPressed: () => _saveRoutine(workout),
+                ),
+              ),
+            ),
           ],
         ),
       ),

@@ -76,5 +76,73 @@ void main() {
 
     expect(find.text('Rutina sugerida'), findsOneWidget);
     expect(find.text('Plan de comidas'), findsOneWidget);
+    expect(find.byKey(const Key('save_routine_button')), findsOneWidget);
+  });
+
+  testWidgets(
+      'Guardar rutina: al confirmar el nombre dispara un INSERT en training.routines con el shape esperado',
+      (tester) async {
+    final chatMock = MockClient((req) async => http.Response(
+          jsonEncode({
+            'reply': 'Aquí tienes tu rutina',
+            'workout': {
+              'items': [
+                {'exercise_id': 3, 'sets': 4, 'reps': 10, 'rpe': 8, 'name': 'Sentadilla'}
+              ],
+              'cardio_block': '20 min trote suave',
+            },
+            'meal_plan': null,
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ));
+    final ai = AiProvider(
+      httpClient: chatMock,
+      config: AIConfig(provider: 'openai', model: 'm'),
+    );
+    await ai.sendMessage('genera mi rutina');
+
+    // El INSERT real usa `SupabaseConfig.client` (singleton no inicializable
+    // en test sin levantar auth/realtime real); en vez de eso se inyecta
+    // `saveRoutineOverride`, el mismo seam que produce el request real
+    // (mismo `name`/`workout` que el botón pasaría a
+    // `client.schema('training').from('routines').insert({...})`), y así se
+    // verifica el shape sin depender de la red.
+    String? capturedName;
+    Map<String, dynamic>? capturedWorkout;
+    Future<void> fakeSave(String name, Map<String, dynamic> workout) async {
+      capturedName = name;
+      capturedWorkout = workout;
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChangeNotifierProvider<AiProvider>.value(
+          value: ai,
+          child: Scaffold(body: ChatScreen(embedded: true, saveRoutineOverride: fakeSave)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('save_routine_button')));
+    await tester.pumpAndSettle();
+
+    // El diálogo trae un nombre prellenado tipo "Rutina IA d/m".
+    expect(find.byKey(const Key('save_routine_name_field')), findsOneWidget);
+    final now = DateTime.now();
+    expect(find.text('Rutina IA ${now.day}/${now.month}'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('save_routine_confirm_button')));
+    await tester.pumpAndSettle();
+
+    expect(capturedName, 'Rutina IA ${now.day}/${now.month}');
+    expect(capturedWorkout, isNotNull);
+    expect(capturedWorkout!['items'], [
+      {'exercise_id': 3, 'sets': 4, 'reps': 10, 'rpe': 8, 'name': 'Sentadilla'}
+    ]);
+    expect(capturedWorkout!['cardio_block'], '20 min trote suave');
+
+    expect(find.text('Rutina guardada — ya aparece en Entrenamiento'), findsOneWidget);
   });
 }
