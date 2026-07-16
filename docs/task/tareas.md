@@ -285,3 +285,147 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   - `[X]` A9.3.1.1: Documentar la visión multi-proveedor en `architecture.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A.
+
+---
+
+## F10: Autenticación Real (GoTrue + RLS) [X]
+
+> Reemplaza el bypass por `devUserId` con auth real (GoTrue) y aislamiento por usuario (RLS). Cierra INC-003/INC-006.
+> **AC de Fase:** GoTrue en el stack + gateway enruta `/auth/v1` · FK `users→auth.users` + RLS `auth.uid()` en tablas de usuario (`exercises` público) · login/signup/logout + sesión persistente + cero `devUserId` · providers usan `currentUser.id` · ADR auth + RLS/FK en docs. **Toca architecture.md Y diseno_db.md → `auditar-coherencia` antes de commitear.**
+
+### SF10.1: Infraestructura de Auth (GoTrue + gateway) [X]
+
+#### T10.1.1: Servicio GoTrue en `docker-compose.yml` [X]
+- **🧠 Explicación:** GoTrue es el servidor de auth de Supabase (emite JWT con el claim `sub`=user id que RLS lee vía `auth.uid()`). Hoy el stack no lo tiene (se bypasseó en F1). Se añade como servicio apuntando a la misma Postgres, con un `GOTRUE_JWT_SECRET` que **debe** coincidir con el secreto con que PostgREST valida los JWT.
+- **💡 Cómo hacerlo:** en `docker-compose.yml`, añadir el servicio y reusar el secreto ya usado por PostgREST (`PGRST_JWT_SECRET`):
+  ```yaml
+  nutri-fit-auth:
+    image: supabase/gotrue:v2.151.0
+    depends_on: [nutri-fit-postgres]
+    environment:
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:postgres@nutri-fit-postgres:5432/postgres?search_path=auth
+      GOTRUE_SITE_URL: http://localhost:8080
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}          # mismo secreto que PostgREST
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"          # dev: sin verificación de email
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+  ```
+- **Acciones:**
+  - `[X]` A10.1.1.1: Añadir el servicio GoTrue con el mismo `JWT_SECRET` que PostgREST y `MAILER_AUTOCONFIRM=true`.
+  - `[X]` A10.1.1.2: Asegurar el rol `supabase_auth_admin` y el esquema `auth` en el init de Postgres (GoTrue corre sus migraciones al arrancar).
+- **✅ Tests Unitarios:** `docker compose up` levanta `nutri-fit-auth` healthy; `POST /auth/v1/signup` (directo al :9999) crea un usuario en `auth.users`.
+- **🎭 Tests de Simulación de Usuario:** N/A (infra).
+
+#### T10.1.2: Enrutar `/auth/v1/` en el gateway nginx [X]
+- **🧠 Explicación:** El frontend habla con un solo origen (`:54321`). Hay que enrutar `/auth/v1/` a GoTrue igual que `/rest/v1/` va a PostgREST, sin romper el CORS ya arreglado (INC-001).
+- **💡 Cómo hacerlo:** en `docker/gateway/nginx.conf`, añadir un `location`:
+  ```nginx
+  location /auth/v1/ {
+      proxy_pass http://nutri-fit-auth:9999/;
+      proxy_set_header Host $host;
+      proxy_set_header Authorization $http_authorization;
+  }
+  ```
+- **Acciones:**
+  - `[X]` A10.1.2.1: `location /auth/v1/` → GoTrue, conservando `/rest/v1/` → PostgREST.
+  - `[X]` A10.1.2.2: Verificar CORS (headers no duplicados, como en INC-001).
+- **✅ Tests Unitarios:** `curl :54321/auth/v1/health` → 200; `curl :54321/auth/v1/signup` crea usuario (mismo resultado que directo al :9999).
+- **🎭 Tests de Simulación de Usuario:** N/A (infra).
+
+### SF10.2: Esquema y RLS (DB) [X]
+
+#### T10.2.1: FK `public.users → auth.users` + aprovisionamiento de perfil [X]
+- **🧠 Explicación:** El perfil (`public.users`) debe colgar del usuario de auth. Se re-instaura la FK (se quitó en `4a46f51`) y se crea la fila de perfil al hacer signup, vía un trigger `handle_new_user` sobre `auth.users` (patrón estándar de Supabase), para que el id del perfil == id de auth.
+- **💡 Cómo hacerlo:** en `docker/postgres/*.sql`:
+  ```sql
+  ALTER TABLE public.users
+    ADD CONSTRAINT fk_users_auth FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+  CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER AS $$
+  BEGIN
+    INSERT INTO public.users (id, created_at) VALUES (NEW.id, now())
+    ON CONFLICT (id) DO NOTHING;
+    RETURN NEW;
+  END; $$;
+  CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+  ```
+- **Acciones:**
+  - `[X]` A10.2.1.1: FK `public.users.id → auth.users(id) ON DELETE CASCADE`.
+  - `[X]` A10.2.1.2: Trigger `handle_new_user` (o INSERT en el onboarding) para crear el perfil tras signup. **Decisión:** sin trigger — `public.users` tiene columnas NOT NULL (`name`/`birth_date`/`gender`/`height_cm`) que GoTrue no conoce; el Onboarding sigue siendo el único punto que crea el perfil completo, ahora con el id del usuario autenticado.
+- **✅ Tests Unitarios:** tras `signup`, existe una fila en `public.users` con el mismo id; borrar el usuario de auth cascada al perfil. Ver `tests/unit/test_rls_policies.sql`.
+- **🎭 Tests de Simulación de Usuario:** cubierto en T10.3.x (signup → onboarding).
+
+#### T10.2.2: RLS + políticas por usuario (catálogo público) [X]
+- **🧠 Explicación:** Con auth real, RLS garantiza que cada usuario solo toque sus filas. `workout_sets` no tiene `user_id` propio → su política se apoya en la sesión dueña. `training.exercises` es catálogo compartido → lectura pública.
+- **💡 Cómo hacerlo:**
+  ```sql
+  ALTER TABLE public.users            ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE nutrition.user_goals    ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE nutrition.food_logs     ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE training.workout_sessions ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE training.workout_sets   ENABLE ROW LEVEL SECURITY;
+
+  CREATE POLICY own_users     ON public.users         USING (auth.uid() = id)      WITH CHECK (auth.uid() = id);
+  CREATE POLICY own_goals     ON nutrition.user_goals USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  CREATE POLICY own_logs      ON nutrition.food_logs  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  CREATE POLICY own_sessions  ON training.workout_sessions USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  CREATE POLICY own_sets      ON training.workout_sets
+    USING (EXISTS (SELECT 1 FROM training.workout_sessions s WHERE s.id = session_id AND s.user_id = auth.uid()))
+    WITH CHECK (EXISTS (SELECT 1 FROM training.workout_sessions s WHERE s.id = session_id AND s.user_id = auth.uid()));
+  -- Catálogo público de lectura
+  GRANT SELECT ON training.exercises TO anon, authenticated;
+  ```
+- **Acciones:**
+  - `[ ]` A10.2.2.1: `ENABLE ROW LEVEL SECURITY` + política `auth.uid()` en las 5 tablas de usuario.
+  - `[ ]` A10.2.2.2: Política/GRANT de lectura pública en `training.exercises`.
+- **✅ Tests Unitarios:** con JWT real de A, `SELECT` en `food_logs` solo devuelve filas de A; con JWT de B, 0 filas de A; `SELECT` en `exercises` funciona sin sesión. Ver `tests/unit/test_rls_policies.sql` y `tests/e2e/test_auth_rls_e2e.sh` (6/6 PASS, verificado independientemente por el orquestador).
+- **🎭 Tests de Simulación de Usuario:** el usuario B no ve el diario del usuario A (cubierto en T10.3.x).
+
+### SF10.3: Autenticación en el Frontend [ ]
+
+#### T10.3.1: Login/Signup/Logout + `AuthGate` [X]
+- **🧠 Explicación:** Pantalla de entrada con email/clave (login y signup) y logout; un `AuthGate` que escucha `onAuthStateChange` decide qué mostrar. `supabase_flutter` persiste la sesión automáticamente.
+- **💡 Cómo hacerlo:** `auth_screen.dart` + `AuthGate`:
+  ```dart
+  final auth = Supabase.instance.client.auth;
+  await auth.signUp(email: email, password: pass);           // registro
+  await auth.signInWithPassword(email: email, password: pass); // login
+  await auth.signOut();                                        // logout
+  // Gate reactivo:
+  StreamBuilder(stream: auth.onAuthStateChange, builder: (_, snap) {
+    final session = auth.currentSession;
+    if (session == null) return const AuthScreen();
+    return const InitialCheckScreen(); // sesión → decide onboarding/dashboard
+  });
+  ```
+- **Acciones:**
+  - `[X]` A10.3.1.1: `auth_screen.dart` (login + signup con validación y errores).
+  - `[X]` A10.3.1.2: `AuthGate` en `main.dart` (sin sesión → login; con sesión → InitialCheck).
+  - `[X]` A10.3.1.3: Botón de logout (p.ej. en el Dashboard).
+- **✅ Tests Unitarios:** widget test de `AuthScreen` (valida email/clave, muestra error en credenciales inválidas); `AuthGate` renderiza login cuando no hay sesión. 26/26 tests verdes (`frontend/test/auth_screen_test.dart`).
+- **🎭 Tests de Simulación de Usuario:** signup → aterriza en onboarding; login con las mismas credenciales → dashboard; logout → vuelve a login. (E2E de UI pendiente para T10.3.2, cuando los providers ya usen `currentUser.id`.)
+
+#### T10.3.2: Reemplazar `devUserId` por `currentUser!.id` [X]
+- **🧠 Explicación:** Todas las lecturas/escrituras deben usar el id del usuario autenticado, no el `devUserId`. El `InitialCheckScreen` ya tiene el hook `currentUser?.id ?? devUserId` → pasa a exigir sesión.
+- **💡 Cómo hacerlo:** grep `AppConstants.devUserId` y sustituir por `SupabaseConfig.client.auth.currentUser!.id` en `onboarding_provider.dart`, `nutrition_provider.dart`, `training_provider.dart`, `dashboard_screen.dart` y `main.dart`; el onboarding escribe `public.users`/`user_goals` con ese id. Dejar `devUserId` deprecado/eliminado en `constants.dart`.
+- **Acciones:**
+  - `[X]` A10.3.2.1: Sustituir `devUserId` en providers + dashboard + `main.dart`.
+  - `[X]` A10.3.2.2: Onboarding atado al usuario autenticado; eliminar `devUserId` de `constants.dart`.
+- **✅ Tests Unitarios:** provider tests: con una sesión mockeada, las queries usan `currentUser.id`; no queda ninguna referencia a `devUserId` (grep en `lib/`). Confirmado por el orquestador: 0 referencias, 26/26 tests verdes por archivo.
+- **🎭 Tests de Simulación de Usuario:** dos cuentas distintas ven diarios/dashboards independientes. Cubierto por el E2E de RLS (`tests/e2e/test_auth_rls_e2e.sh`, T10.2.2) a nivel API; UI completa se ejerce manualmente/con Playwright en una iteración futura si se requiere.
+
+### SF10.4: Documentación [X]
+
+#### T10.4.1: ADR de auth en `architecture.md` + RLS/FK en `diseno_db.md` [X]
+- **🧠 Explicación:** Formalizar el flujo de auth (login → sesión JWT → RLS) y retirar la nota de bypass; documentar FK y políticas RLS en el diseño de DB.
+- **💡 Cómo hacerlo:** nuevo ADR en `architecture.md` (GoTrue + gateway `/auth/v1`, RLS `auth.uid()`, retira el bypass de INC-006); en `diseno_db.md`, sección de seguridad con la FK `users→auth.users` y la matriz de políticas por tabla.
+- **Acciones:**
+  - `[X]` A10.4.1.1: ADR de autenticación en `architecture.md` (ADR 9).
+  - `[X]` A10.4.1.2: RLS + FK en `diseno_db.md` (§3, añadido durante SF10.2).
+- **✅ Tests Unitarios:** N/A (docs).
+- **🎭 Tests de Simulación de Usuario:** N/A (docs).

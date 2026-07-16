@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase_config.dart';
-import '../../core/constants.dart';
 
 class OnboardingProvider extends ChangeNotifier {
   // Form fields
@@ -148,7 +147,7 @@ class OnboardingProvider extends ChangeNotifier {
   Future<void> loadProfile() async {
     try {
       final client = SupabaseConfig.client;
-      final userId = client.auth.currentUser?.id ?? AppConstants.devUserId;
+      final userId = client.auth.currentUser!.id;
 
       final u = await client.from('users').select().eq('id', userId).maybeSingle();
       if (u != null) {
@@ -187,10 +186,8 @@ class OnboardingProvider extends ChangeNotifier {
 
     try {
       final client = SupabaseConfig.client;
-      
-      // In dev mode without GoTrue, use a deterministic user ID.
-      // This avoids calls to /auth/v1/ which don't exist in our stack.
-      const userId = AppConstants.devUserId;
+
+      final userId = client.auth.currentUser!.id;
 
       // 1. Insert into public.users
       await client.from('users').upsert({

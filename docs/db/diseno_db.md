@@ -115,3 +115,14 @@ Database: nutri-fit
 | `reps` | `INTEGER` | `NOT NULL` | Repeticiones completadas |
 | `rpe` | `REAL` | | Esfuerzo percibido (1.0 - 10.0) |
 | `completed` | `BOOLEAN` | `DEFAULT TRUE` | Marcar si se realizó la serie |
+
+---
+
+## 3. Seguridad de Acceso (RLS)
+
+Materializado en `docker/postgres/zzz_auth_rls.sql` (Fase F10, T10.2.1/T10.2.2).
+
+- `public.users.id` tiene FK real `fk_users_auth → auth.users(id) ON DELETE CASCADE`. No existe trigger de auto-provisión: el perfil se crea en el Onboarding de la app (`frontend/lib/features/auth/onboarding_provider.dart`), que es el único punto con los datos NOT NULL (`name`, `birth_date`, `gender`, `height_cm`) que GoTrue no conoce en el signup.
+- **RLS habilitado** (política `auth.uid() = <columna de dueño>`, `USING` + `WITH CHECK`) en: `public.users` (por `id`), `nutrition.user_goals` (por `user_id`), `nutrition.food_logs` (por `user_id`), `training.workout_sessions` (por `user_id`). `training.workout_sets` no tiene `user_id` propio: su política valida por subquery contra `training.workout_sessions.user_id` vía `session_id`.
+- **Catálogo público sin RLS:** `training.exercises` y `nutrition.food_cache` (sin dueño) — accesibles vía `GRANT` a `anon` y `authenticated`.
+- Las requests autenticadas corren como rol `authenticated` (no `anon`); `zzz_auth_rls.sql` otorga a `authenticated` los mismos `GRANT`s que `z_init.sql` ya daba a `anon` sobre las 5 tablas de usuario y el catálogo.

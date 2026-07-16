@@ -96,3 +96,28 @@ Este documento detalla la planificación del desarrollo de Nutri-Fit, incluyendo
   - T9.2.3: Entrenamiento — "Escanear máquina con IA" → ficha + ejercicios.
 - **F9.SF3: Documentación**
   - T9.3.1: ADR/flujo de visión en `architecture.md`.
+
+### Fase 10: Autenticación Real (GoTrue + RLS)
+- **Macro-objetivo:** Reemplazar el bypass de auth (todos comparten `devUserId` `000…000`) por **autenticación real con GoTrue** y **aislamiento por usuario con Row-Level Security**, cerrando la deuda de INC-003/INC-006. Cada usuario ve y escribe solo sus propios datos.
+- **Entregable global:** login/signup/logout funcional con sesión persistente; `devUserId` eliminado del código; RLS activo en las tablas de datos del usuario; el catálogo `training.exercises` sigue siendo de lectura pública; docs (ADR de auth + RLS/FK) actualizadas.
+- **Decisión de alcance:** Nueva Fase — introduce un dominio nuevo (identidad/seguridad), un servicio nuevo (GoTrue) y un cambio de esquema (FK a `auth.users` + políticas RLS). **Toca `architecture.md` Y `diseno_db.md`** → correr `auditar-coherencia` antes de commitear. No crea tablas de negocio nuevas; `daily_summaries` no existe como tabla (queda fuera).
+- **Criterios de Aceptación (AC):**
+  - **AC1 (Infra):** GoTrue corre en el stack; el gateway (`:54321`) enruta `/auth/v1/` → GoTrue y conserva `/rest/v1/` → PostgREST; `signup`/`token` responden y el health del stack queda verde.
+  - **AC2 (DB/RLS):** `public.users.id` con FK a `auth.users(id)` `ON DELETE CASCADE`; RLS habilitado con políticas `auth.uid()`-based en `public.users`, `nutrition.user_goals`, `nutrition.food_logs`, `training.workout_sessions` y `training.workout_sets` (esta última por pertenencia de la sesión); `training.exercises` con lectura pública. Un usuario no puede leer/escribir filas de otro.
+  - **AC3 (Frontend auth):** pantallas de login/signup/logout con `supabase_flutter`; la sesión persiste entre recargas; **cero referencias a `AppConstants.devUserId`** en el código de runtime; gate: sin sesión → login, con sesión sin perfil → onboarding, con sesión y perfil → dashboard.
+  - **AC4 (Providers):** `onboarding`/`nutrition`/`training`/`dashboard` usan `client.auth.currentUser!.id`; el onboarding escribe `public.users`/`user_goals` atados al usuario autenticado; el `ai_service` (stateless, solo lee `training.exercises` público) sigue funcionando.
+  - **AC5 (Docs):** ADR de autenticación en `architecture.md` (flujo login→sesión→RLS; retira la nota de bypass); RLS + FK documentados en `diseno_db.md`.
+- **Estrategia de Pruebas (nivel Fase):**
+  - **Tests Unitarios:** SQL de RLS (un `SET request.jwt.claims` de usuario B no ve filas de A; select del catálogo permitido a anon); widget tests de login/signup (validación de email/clave, estados de error); provider tests (leen `currentUser.id`, no `devUserId`).
+  - **Tests de Simulación de Usuario:** signup → onboarding → dashboard con datos propios; logout → vuelve a login; el usuario B autenticado no ve el diario del usuario A.
+- **F10.SF1: Infraestructura de Auth (GoTrue + gateway)**
+  - T10.1.1: Añadir el servicio GoTrue a `docker-compose.yml` (DB, `GOTRUE_JWT_SECRET`, `SITE_URL`, signup habilitado, sin verificación de email en dev).
+  - T10.1.2: Enrutar `/auth/v1/` → GoTrue en el gateway nginx, conservando `/rest/v1/` → PostgREST y el CORS ya arreglado.
+- **F10.SF2: Esquema y RLS (DB)**
+  - T10.2.1: Re-instaurar la FK `public.users.id` → `auth.users(id)` `ON DELETE CASCADE` y el aprovisionamiento del perfil (trigger `handle_new_user` o INSERT en onboarding tras signup).
+  - T10.2.2: Habilitar RLS + políticas por usuario en las tablas de datos; `training.exercises` lectura pública (GRANT/policy a `anon`/`authenticated`).
+- **F10.SF3: Autenticación en el Frontend**
+  - T10.3.1: Pantalla Login/Signup/Logout con `supabase_flutter` + `AuthGate` reactivo a `onAuthStateChange`.
+  - T10.3.2: Reemplazar `devUserId` por `currentUser!.id` en providers, dashboard y `main.dart`; onboarding atado al usuario autenticado.
+- **F10.SF4: Documentación**
+  - T10.4.1: ADR de autenticación en `architecture.md` (retira el bypass) + RLS/FK en `diseno_db.md`.

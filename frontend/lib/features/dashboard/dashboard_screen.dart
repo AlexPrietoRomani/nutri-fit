@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../nutrition/nutrition_provider.dart';
 import '../training/training_provider.dart';
 import '../auth/onboarding_provider.dart';
@@ -85,6 +86,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Color(0xFF2ED573)),
             onPressed: _refreshData,
+          ),
+          IconButton(
+            key: const Key('logout_button'),
+            icon: const Icon(Icons.logout_rounded, color: Colors.grey),
+            tooltip: 'Cerrar sesión',
+            onPressed: () => Supabase.instance.client.auth.signOut(),
           ),
         ],
       ),
