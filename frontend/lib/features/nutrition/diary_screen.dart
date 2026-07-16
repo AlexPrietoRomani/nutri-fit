@@ -21,6 +21,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<NutritionProvider>().loadDailyData(_selectedDate);
+      context.read<NutritionProvider>().fetchMealPlans();
     });
   }
 
@@ -214,6 +215,8 @@ class _DiaryScreenState extends State<DiaryScreen> {
                     _buildMealSection(context, 'Cena', 'dinner', provider.getMealsOfType('dinner')),
                     const SizedBox(height: 16),
                     _buildMealSection(context, 'Snacks', 'snack', provider.getMealsOfType('snack')),
+                    const SizedBox(height: 24),
+                    _buildMealPlansSection(context, provider),
                     const SizedBox(height: 80), // spacer at bottom
                   ],
                 ),
@@ -370,6 +373,86 @@ class _DiaryScreenState extends State<DiaryScreen> {
     );
   }
 
+  /// Sección "Mis Planes de Comida" (T16.2.2), mismo patrón visual que "Mis
+  /// Rutinas" de `workout_screen.dart`: `Card` + `InkWell` con una estrella
+  /// para marcar/desmarcar el plan predeterminado.
+  Widget _buildMealPlansSection(BuildContext context, NutritionProvider provider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Mis Planes de Comida',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.white),
+        ),
+        const SizedBox(height: 12),
+        if (provider.mealPlans.isEmpty)
+          const Text(
+            'Aún no tienes planes guardados — pídele uno al chat.',
+            style: TextStyle(color: Colors.grey, fontSize: 12),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: provider.mealPlans.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final plan = provider.mealPlans[index];
+              final mealCount = (plan['meals'] as List? ?? const []).length;
+              return Card(
+                color: const Color(0xFF1E201E),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2ED573).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.restaurant_menu_rounded,
+                          color: Color(0xFF2ED573),
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              plan['name'] as String,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '$mealCount comidas',
+                              style: const TextStyle(color: Colors.grey, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        key: Key('set_default_meal_plan_${plan['id']}'),
+                        tooltip: plan['is_default'] == true ? 'Plan predeterminado' : 'Marcar como predeterminado',
+                        icon: Icon(
+                          plan['is_default'] == true ? Icons.star_rounded : Icons.star_border_rounded,
+                          color: const Color(0xFF2ED573),
+                        ),
+                        onPressed: () => provider.setDefaultMealPlan(plan['id'] as String),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
   Widget _buildMealSection(BuildContext context, String title, String mealType, List<FoodLog> logs) {
     final sectionCalories = logs.fold<double>(0, (sum, item) => sum + item.calories);
 
@@ -379,7 +462,13 @@ class _DiaryScreenState extends State<DiaryScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFF2E302E)),
       ),
-      child: ExpansionTile(
+      // Material(transparency) evita que el ListTile interno del
+      // ExpansionTile pinte su fondo/splash de tinta sobre este Container
+      // decorado (advertencia del framework: "background color or ink
+      // splashes may be invisible") sin alterar el look ya existente.
+      child: Material(
+        type: MaterialType.transparency,
+        child: ExpansionTile(
         initiallyExpanded: true,
         iconColor: const Color(0xFF2ED573),
         collapsedIconColor: Colors.white,
@@ -481,6 +570,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
             ),
           ),
         ],
+        ),
       ),
     );
   }

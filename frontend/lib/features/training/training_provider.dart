@@ -206,6 +206,50 @@ class TrainingProvider extends ChangeNotifier {
     }
   }
 
+  /// Marca [routineId] como predeterminada (`training.routines.is_default`),
+  /// desmarcando primero cualquier otra rutina que ya lo fuera del usuario
+  /// (índice único parcial en DB solo permite una a la vez), y refresca
+  /// [savedRoutines].
+  ///
+  /// [setDefaultOverride]/[fetchOverride] permiten inyectar el flujo en tests
+  /// sin `SupabaseClient` real (mismo seam que [fetchSavedRoutines], ver
+  /// INC-015 en docs/logs/log.md).
+  Future<void> setDefaultRoutine(
+    String routineId, {
+    Future<void> Function()? setDefaultOverride,
+    Future<List<Map<String, dynamic>>> Function()? fetchOverride,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      if (setDefaultOverride != null) {
+        await setDefaultOverride();
+      } else {
+        final client = SupabaseConfig.client;
+        final userId = client.auth.currentUser!.id;
+        await client
+            .schema('training')
+            .from('routines')
+            .update({'is_default': false})
+            .eq('user_id', userId)
+            .eq('is_default', true);
+        await client
+            .schema('training')
+            .from('routines')
+            .update({'is_default': true})
+            .eq('id', routineId);
+      }
+      await fetchSavedRoutines(fetchOverride: fetchOverride);
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   /// Cargar el catálogo de ejercicios de la tabla `training.exercises`.
   Future<void> fetchExercises() async {
     _isLoading = true;

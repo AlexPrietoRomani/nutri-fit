@@ -77,6 +77,7 @@ void main() {
     expect(find.text('Rutina sugerida'), findsOneWidget);
     expect(find.text('Plan de comidas'), findsOneWidget);
     expect(find.byKey(const Key('save_routine_button')), findsOneWidget);
+    expect(find.byKey(const Key('save_meal_plan_button')), findsOneWidget);
   });
 
   testWidgets(
@@ -144,5 +145,82 @@ void main() {
     expect(capturedWorkout!['cardio_block'], '20 min trote suave');
 
     expect(find.text('Rutina guardada — ya aparece en Entrenamiento'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Guardar plan: al confirmar el nombre dispara un INSERT en nutrition.meal_plans con el shape esperado',
+      (tester) async {
+    final chatMock = MockClient((req) async => http.Response(
+          jsonEncode({
+            'reply': 'Aquí tienes tu plan',
+            'workout': null,
+            'meal_plan': {
+              'meals': [
+                {
+                  'meal_type': 'breakfast',
+                  'food_name': 'Avena con fruta',
+                  'calories': 350,
+                  'protein_g': 15,
+                  'carbs_g': 50,
+                  'fat_g': 8,
+                  'serving_size_g': 200,
+                }
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ));
+    final ai = AiProvider(
+      httpClient: chatMock,
+      config: AIConfig(provider: 'openai', model: 'm'),
+    );
+    await ai.sendMessage('genera mi plan');
+
+    // Mismo seam que saveRoutineOverride (ver INC-015): saveMealPlanOverride
+    // evita instanciar un SupabaseClient real y captura el shape del INSERT.
+    String? capturedName;
+    Map<String, dynamic>? capturedMealPlan;
+    Future<void> fakeSave(String name, Map<String, dynamic> mealPlan) async {
+      capturedName = name;
+      capturedMealPlan = mealPlan;
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChangeNotifierProvider<AiProvider>.value(
+          value: ai,
+          child: Scaffold(body: ChatScreen(embedded: true, saveMealPlanOverride: fakeSave)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('save_meal_plan_button')));
+    await tester.pumpAndSettle();
+
+    // El diálogo trae un nombre prellenado tipo "Plan IA d/m".
+    expect(find.byKey(const Key('save_meal_plan_name_field')), findsOneWidget);
+    final now = DateTime.now();
+    expect(find.text('Plan IA ${now.day}/${now.month}'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('save_meal_plan_confirm_button')));
+    await tester.pumpAndSettle();
+
+    expect(capturedName, 'Plan IA ${now.day}/${now.month}');
+    expect(capturedMealPlan, isNotNull);
+    expect(capturedMealPlan!['meals'], [
+      {
+        'meal_type': 'breakfast',
+        'food_name': 'Avena con fruta',
+        'calories': 350,
+        'protein_g': 15,
+        'carbs_g': 50,
+        'fat_g': 8,
+        'serving_size_g': 200,
+      }
+    ]);
+
+    expect(find.text('Plan guardado — ya aparece en Nutrición'), findsOneWidget);
   });
 }

@@ -392,6 +392,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                                       ],
                                     ),
                                   ),
+                                  IconButton(
+                                    key: Key('set_default_routine_${routine['id']}'),
+                                    tooltip: routine['is_default'] == true
+                                        ? 'Rutina predeterminada'
+                                        : 'Marcar como predeterminada',
+                                    icon: Icon(
+                                      routine['is_default'] == true ? Icons.star_rounded : Icons.star_border_rounded,
+                                      color: const Color(0xFF2ED573),
+                                    ),
+                                    onPressed: () => provider.setDefaultRoutine(routine['id'] as String),
+                                  ),
                                   const Icon(
                                     Icons.chevron_right_rounded,
                                     color: Colors.grey,

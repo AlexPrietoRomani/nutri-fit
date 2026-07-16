@@ -65,6 +65,54 @@ void main() {
     });
   });
 
+  group('NutritionProvider.fetchMealPlans / setDefaultMealPlan (T16.2.2)', () {
+    // Mismo seam inyectable que TrainingProvider.fetchSavedRoutines/
+    // setDefaultRoutine: no se instancia SupabaseClient real (INC-015).
+    test('fetchMealPlans puebla mealPlans desde la respuesta inyectada', () async {
+      final provider = NutritionProvider();
+      final fakePlans = [
+        {'id': 'p1', 'name': 'Plan IA', 'meals': [], 'is_default': false},
+      ];
+
+      await provider.fetchMealPlans(fetchOverride: () async => fakePlans);
+
+      expect(provider.mealPlans, fakePlans);
+      expect(provider.errorMessage, isNull);
+    });
+
+    test('marcar otro plan como default deja exactamente uno marcado tras refrescar', () async {
+      final provider = NutritionProvider();
+      final backend = [
+        {'id': 'p1', 'name': 'Plan A', 'meals': [], 'is_default': true},
+        {'id': 'p2', 'name': 'Plan B', 'meals': [], 'is_default': false},
+      ];
+
+      await provider.setDefaultMealPlan(
+        'p2',
+        setDefaultOverride: () async {
+          for (final p in backend) {
+            p['is_default'] = p['id'] == 'p2';
+          }
+        },
+        fetchOverride: () async => backend,
+      );
+
+      expect(provider.mealPlans.where((p) => p['is_default'] == true).length, 1);
+      expect(provider.mealPlans.firstWhere((p) => p['id'] == 'p2')['is_default'], isTrue);
+      expect(provider.mealPlans.firstWhere((p) => p['id'] == 'p1')['is_default'], isFalse);
+      expect(provider.errorMessage, isNull);
+    });
+
+    test('errores del fetch inyectado se reflejan en errorMessage sin lanzar', () async {
+      final provider = NutritionProvider();
+
+      await provider.fetchMealPlans(fetchOverride: () async => throw Exception('boom'));
+
+      expect(provider.mealPlans, isEmpty);
+      expect(provider.errorMessage, contains('boom'));
+    });
+  });
+
   group('UserGoals serialización', () {
     test('fromJson mapea metas y macros', () {
       final goals = UserGoals.fromJson({
