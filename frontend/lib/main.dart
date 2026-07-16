@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/supabase_config.dart';
-import 'core/constants.dart';
+import 'features/auth/auth_screen.dart';
 import 'features/auth/onboarding_provider.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/nutrition/nutrition_provider.dart';
@@ -69,13 +70,37 @@ class NutriFitApp extends StatelessWidget {
       ),
       initialRoute: '/',
       routes: {
-        '/': (context) => const InitialCheckScreen(),
+        '/': (context) => const AuthGate(),
         '/onboarding': (context) => const OnboardingScreen(),
         '/dashboard': (context) => const DashboardScreen(),
         '/diary': (context) => const DiaryScreen(),
         '/training': (context) => const WorkoutScreen(),
         '/chat': (context) => const ChatScreen(),
         '/ai-settings': (context) => const AiSettingsScreen(),
+      },
+    );
+  }
+}
+
+/// Gate reactivo a la sesión de Supabase: sin sesión muestra [AuthScreen],
+/// con sesión delega en [InitialCheckScreen] (Onboarding vs Dashboard).
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<AuthState>(
+      stream: SupabaseConfig.client.auth.onAuthStateChange,
+      initialData: AuthState(
+        AuthChangeEvent.initialSession,
+        SupabaseConfig.client.auth.currentSession,
+      ),
+      builder: (context, snapshot) {
+        final session = snapshot.data?.session ?? SupabaseConfig.client.auth.currentSession;
+        if (session == null) {
+          return const AuthScreen();
+        }
+        return const InitialCheckScreen();
       },
     );
   }
@@ -88,8 +113,7 @@ class InitialCheckScreen extends StatelessWidget {
   Future<bool> _isProfileConfigured() async {
     try {
       final client = SupabaseConfig.client;
-      // Sin GoTrue usamos el UUID de dev; con auth real, el id del usuario.
-      final userId = client.auth.currentUser?.id ?? AppConstants.devUserId;
+      final userId = client.auth.currentUser!.id;
       final data = await client
           .from('users')
           .select('id')
