@@ -195,3 +195,26 @@ Este documento detalla la planificación del desarrollo de Nutri-Fit, incluyendo
   - T13.3.1: Listar rutinas guardadas junto a las predefinidas; iniciar una precarga sets/reps/rpe objetivo.
 - **F13.SF4: Documentación**
   - T13.4.1: ADR 12 en `architecture.md` + `training.routines` en `diseno_db.md`.
+
+### Fase 14: Recuperación de Contraseña (mailer local + flujo completo)
+- **Macro-objetivo:** `AuthScreen` (F10) solo tiene login/signup, sin ningún flujo de recuperación (verificado por grep, cero resultados). El flujo real de GoTrue (`/auth/v1/recover`) envía un correo con un link de recuperación, pero el stack de dev no tiene ningún servidor SMTP — sin él, GoTrue fallaría al intentar enviar el correo. Esta Fase añade un mailer de pruebas local y el flujo completo de recuperación.
+- **Entregable global:** un enlace "¿Olvidaste tu contraseña?" en el login que envía un correo real (capturado por un mailer de pruebas visible en una UI web), y una pantalla que completa el cambio de contraseña al abrir el link del correo.
+- **Decisión de infraestructura:** **Mailpit** (no Mailhog, que está prácticamente sin mantenimiento desde 2020) como servidor SMTP de pruebas — expone SMTP en `:1025` y una UI web en `:8025` para ver los correos capturados, más una **API REST** (`GET /api/v1/messages`) que permite extraer el link de recuperación programáticamente para el E2E de esta Fase, sin depender de interacción manual con la UI.
+- **Mecanismo de recuperación en Flutter (confirmado vía Context7, no asumido):** `auth.resetPasswordForEmail(email, redirectTo: ...)` dispara el correo; al abrir el link, `Supabase.initialize()` detecta el token de recuperación en la URL y GoTrue establece una sesión temporal, emitiendo `AuthChangeEvent.passwordRecovery` por `onAuthStateChange` — la app debe escuchar ese evento (con prioridad sobre el enrutamiento normal del `AuthGate`) y mostrar una pantalla de "nueva contraseña" que llama `auth.updateUser(UserAttributes(password: nueva))` (método y clase confirmados en la documentación real del SDK).
+- **Criterios de Aceptación (AC):**
+  - **AC1 (infra):** servicio `mailpit` en `docker-compose.yml` (SMTP `:1025`, UI web `:8025`); `GOTRUE_SMTP_*` configurado para apuntar a él; `GOTRUE_SITE_URL`/redirect ya apunta a `http://localhost:8080` (F10).
+  - **AC2 (login):** enlace "¿Olvidaste tu contraseña?" en `AuthScreen` (modo login) → diálogo de email → `resetPasswordForEmail` → mensaje "revisa tu correo".
+  - **AC3 (recuperación):** al abrir el link real (capturado por Mailpit), la app detecta `AuthChangeEvent.passwordRecovery` y muestra una pantalla de nueva contraseña → `updateUser` → confirmación → puede iniciar sesión con la contraseña nueva.
+  - **AC4 (E2E real, sin mocks):** solicitar recuperación para un email de prueba real → confirmar que el correo aparece en la API de Mailpit (no simulado) → extraer el link real → completar el cambio → login con la contraseña nueva, todo verificado con comandos reales contra el stack.
+  - **AC5 (docs):** ADR 13 en `architecture.md` (mailer local, decisión Mailpit sobre Mailhog, mecanismo de `passwordRecovery`). No toca `diseno_db.md` (`auth.users` ya existe, sin tablas nuevas).
+- **Estrategia de Pruebas (nivel Fase):**
+  - **Tests Unitarios:** frontend — el enlace/diálogo de recuperación arma la llamada correcta a `resetPasswordForEmail`; la pantalla de nueva contraseña llama `updateUser` con la contraseña ingresada y maneja errores sin explotar.
+  - **Tests de Simulación de Usuario:** flujo E2E real descrito en AC4, de punta a punta contra el stack Docker vivo (Mailpit + GoTrue + gateway), sin mocks de correo.
+- **F14.SF1: Mailer local (infra)**
+  - T14.1.1: Servicio `mailpit` en `docker-compose.yml` + configuración `GOTRUE_SMTP_*`.
+- **F14.SF2: Flujo de recuperación (frontend)**
+  - T14.2.1: Enlace "¿Olvidaste tu contraseña?" + diálogo de email → `resetPasswordForEmail`.
+  - T14.2.2: Detección de `AuthChangeEvent.passwordRecovery` + pantalla de nueva contraseña → `updateUser`.
+- **F14.SF3: Verificación E2E real + Documentación**
+  - T14.3.1: E2E real contra Mailpit (extraer el link del correo vía su API, completar el flujo, confirmar login con la contraseña nueva).
+  - T14.3.2: ADR 13 en `architecture.md`.

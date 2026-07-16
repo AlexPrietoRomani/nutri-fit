@@ -779,3 +779,147 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   - `[X]` A13.4.1.2: `training.routines` documentada en `diseno_db.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
+
+---
+
+## F14: Recuperación de Contraseña (mailer local + flujo completo) [ ]
+
+> `AuthScreen` (F10) solo tiene login/signup — sin recuperación de contraseña (verificado por grep, cero resultados). GoTrue puede enviarla, pero el stack no tiene SMTP configurado.
+> **AC de Fase:** servicio `mailpit` (SMTP + UI + API REST) · enlace "¿Olvidaste tu contraseña?" → `resetPasswordForEmail` · detección de `AuthChangeEvent.passwordRecovery` → pantalla de nueva contraseña → `updateUser` · E2E real (correo capturado por Mailpit, no simulado) · ADR 13. **NO toca diseno_db.md.**
+
+### SF14.1: Mailer local (infra) [ ]
+
+#### T14.1.1: Servicio `mailpit` + `GOTRUE_SMTP_*` [ ]
+- **🧠 Explicación:** Mailpit (no Mailhog, sin mantenimiento desde 2020) captura correos SMTP sin enviarlos de verdad — expone una UI web para verlos y una API REST (`GET /api/v1/messages`) para extraerlos programáticamente, clave para el E2E de T14.3.1 sin depender de un navegador.
+- **💡 Cómo hacerlo:** en `docker-compose.yml`:
+  ```yaml
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: nutri-fit-mailpit
+    ports:
+      - "8025:8025"  # UI web + API REST
+      - "1025:1025"  # SMTP
+    networks:
+      - nutrifit-network
+  ```
+  En el servicio `auth` (GoTrue), añadir/ajustar variables:
+  ```yaml
+  GOTRUE_SMTP_HOST: mailpit
+  GOTRUE_SMTP_PORT: "1025"
+  GOTRUE_SMTP_USER: "test"
+  GOTRUE_SMTP_PASS: "test"
+  GOTRUE_SMTP_SENDER_NAME: "Nutri-Fit"
+  GOTRUE_SMTP_ADMIN_EMAIL: "no-reply@nutrifit.local"
+  ```
+  `GOTRUE_SITE_URL` (ya en `http://localhost:8080` desde F10) sigue sirviendo como base para el link del correo; `auth: depends_on: [postgres, mailpit]`.
+- **Acciones:**
+  - `[ ]` A14.1.1.1: Servicio `mailpit` en `docker-compose.yml`.
+  - `[ ]` A14.1.1.2: `GOTRUE_SMTP_*` apuntando a Mailpit.
+- **✅ Tests Unitarios:** N/A (config de infra); verificación manual — `docker compose up`, `curl http://localhost:8025/api/v1/messages` responde (aunque vacío al inicio).
+- **🎭 Tests de Simulación de Usuario:** N/A (infra, cubierto por T14.3.1).
+
+### SF14.2: Flujo de recuperación (frontend) [ ]
+
+#### T14.2.1: Enlace "¿Olvidaste tu contraseña?" → `resetPasswordForEmail` [ ]
+- **🧠 Explicación:** En el modo login de `AuthScreen`, un enlace que pide el email y dispara la recuperación real — sin depender de que el usuario "avise" de otra forma.
+- **💡 Cómo hacerlo:** en `frontend/lib/features/auth/auth_screen.dart`, debajo del botón de login (solo visible en modo login, no signup):
+  ```dart
+  TextButton(
+    onPressed: _isLoading ? null : _showForgotPasswordDialog,
+    child: const Text('¿Olvidaste tu contraseña?'),
+  ),
+  ```
+  ```dart
+  Future<void> _showForgotPasswordDialog() async {
+    final emailCtrl = TextEditingController(text: _emailController.text.trim());
+    final email = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Recuperar contraseña'),
+        content: TextField(controller: emailCtrl, keyboardType: TextInputType.emailAddress, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, emailCtrl.text.trim()), child: const Text('Enviar')),
+        ],
+      ),
+    );
+    if (email == null || email.isEmpty || !email.contains('@')) return;
+    try {
+      await Supabase.instance.client.auth.resetPasswordForEmail(
+        email,
+        redirectTo: 'http://localhost:8080/',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Revisa tu correo para continuar (o la bandeja de Mailpit en dev: http://localhost:8025)')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo enviar: $e')));
+      }
+    }
+  }
+  ```
+- **Acciones:**
+  - `[ ]` A14.2.1.1: Enlace "¿Olvidaste tu contraseña?" visible solo en modo login.
+  - `[ ]` A14.2.1.2: Diálogo de email → `resetPasswordForEmail` con manejo de error.
+- **✅ Tests Unitarios:** widget test — el enlace existe en modo login y NO en modo signup; el diálogo valida el email antes de llamar (mismo patrón de validación ya usado en `_validate()` del archivo).
+- **🎭 Tests de Simulación de Usuario:** cubierto por T14.3.1 (E2E real).
+
+#### T14.2.2: `AuthChangeEvent.passwordRecovery` → pantalla de nueva contraseña [ ]
+- **🧠 Explicación:** Al abrir el link del correo, `Supabase.initialize()` detecta el token de recuperación en la URL y GoTrue emite `AuthChangeEvent.passwordRecovery` por `onAuthStateChange` — confirmado en la documentación real del SDK (no asumido). `AuthGate` (en `main.dart`) ya escucha ese stream para decidir login/dashboard; hay que darle prioridad a este evento sobre el enrutamiento normal.
+- **💡 Cómo hacerlo:** en `frontend/lib/main.dart`, dentro de `AuthGate.build`, el `builder` del `StreamBuilder<AuthState>` ya tiene `snapshot.data?.event` disponible:
+  ```dart
+  builder: (context, snapshot) {
+    if (snapshot.data?.event == AuthChangeEvent.passwordRecovery) {
+      return const ResetPasswordScreen();
+    }
+    final session = snapshot.data?.session ?? SupabaseConfig.client.auth.currentSession;
+    if (session == null) return const AuthScreen();
+    return const InitialCheckScreen();
+  },
+  ```
+  Nuevo archivo `frontend/lib/features/auth/reset_password_screen.dart`: pantalla con un campo de nueva contraseña (+ botón de ojo, mismo patrón ya usado en `auth_screen.dart`) y un botón "Guardar" que llama:
+  ```dart
+  await Supabase.instance.client.auth.updateUser(
+    UserAttributes(password: newPasswordCtrl.text),
+  );
+  ```
+  Tras el éxito, muestra confirmación; el `AuthGate` volverá a evaluar (la sesión ya está activa tras la recuperación) y navegará normalmente.
+- **Acciones:**
+  - `[ ]` A14.2.2.1: `AuthGate` prioriza `AuthChangeEvent.passwordRecovery` sobre el enrutamiento normal.
+  - `[ ]` A14.2.2.2: `ResetPasswordScreen` con campo de contraseña + `updateUser`.
+- **✅ Tests Unitarios:** widget test — con un `AuthState` mockeado de evento `passwordRecovery`, `AuthGate` renderiza `ResetPasswordScreen` (no `AuthScreen`/`InitialCheckScreen`); `ResetPasswordScreen` valida la contraseña (mínimo 6 caracteres, mismo criterio que `auth_screen.dart`) antes de llamar `updateUser`.
+- **🎭 Tests de Simulación de Usuario:** cubierto por T14.3.1 (E2E real).
+
+### SF14.3: Verificación E2E real + Documentación [ ]
+
+#### T14.3.1: E2E real contra Mailpit (sin mocks) [ ]
+- **🧠 Explicación:** El criterio de aceptación central de la Fase: demostrar con comandos reales (no mocks) que el correo se envía, se puede extraer, y el cambio de contraseña funciona de punta a punta.
+- **💡 Cómo hacerlo:**
+  ```bash
+  # 1. Disparar la recuperación real
+  curl -X POST http://localhost:54321/auth/v1/recover -H "Content-Type: application/json" \
+    -d '{"email":"<email de prueba ya existente>"}'
+  # 2. Confirmar que el correo llegó a Mailpit (API REST, no la UI)
+  curl -s http://localhost:8025/api/v1/messages | jq '.messages[0]'
+  # 3. Extraer el link de recuperación del cuerpo del correo (contiene el token)
+  # 4. Completar el cambio de contraseña usando el access_token que trae el link
+  #    (el link de GoTrue ya es una sesión de recuperación válida; el endpoint
+  #    real es PUT /auth/v1/user con ese token como Bearer y {"password": "nueva"})
+  # 5. Confirmar login con la contraseña nueva vía /auth/v1/token?grant_type=password
+  ```
+  Documentar el script real usado (guardarlo en `tests/e2e/` si se generaliza, siguiendo el patrón de `test_auth_rls_e2e.sh`).
+- **Acciones:**
+  - `[ ]` A14.3.1.1: Script/comandos reales que verifican el flujo completo contra Mailpit.
+- **✅ Tests Unitarios:** N/A (es en sí mismo el test de simulación de usuario a nivel API).
+- **🎭 Tests de Simulación de Usuario:** flujo completo verificado end-to-end: solicitar → correo real en Mailpit → cambiar contraseña → login con la nueva.
+
+#### T14.3.2: ADR 13 en `architecture.md` [ ]
+- **🧠 Explicación:** Documentar la decisión de Mailpit sobre Mailhog, la config SMTP de GoTrue, y el mecanismo de `AuthChangeEvent.passwordRecovery`.
+- **💡 Cómo hacerlo:** ADR 13 con contexto (sin flujo de recuperación, sin SMTP), decisión (Mailpit + su API REST para E2E), y el flujo completo (resetPasswordForEmail → correo → passwordRecovery → updateUser).
+- **Acciones:**
+  - `[ ]` A14.3.2.1: ADR 13 en `architecture.md`.
+- **✅ Tests Unitarios:** N/A (docs).
+- **🎭 Tests de Simulación de Usuario:** N/A (docs).
