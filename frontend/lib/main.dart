@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/supabase_config.dart';
+import 'core/constants.dart';
 import 'features/auth/onboarding_provider.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/nutrition/nutrition_provider.dart';
@@ -87,17 +88,14 @@ class InitialCheckScreen extends StatelessWidget {
   Future<bool> _isProfileConfigured() async {
     try {
       final client = SupabaseConfig.client;
-      final user = client.auth.currentUser;
-      if (user == null) {
-        // If not authenticated, we display the onboarding by default for setting up.
-        return false;
-      }
+      // Sin GoTrue usamos el UUID de dev; con auth real, el id del usuario.
+      final userId = client.auth.currentUser?.id ?? AppConstants.devUserId;
       final data = await client
           .from('users')
-          .select()
-          .eq('id', user.id)
+          .select('id')
+          .eq('id', userId)
           .maybeSingle();
-      return data != null;
+      return data != null; // hay perfil -> Dashboard; no hay -> Onboarding
     } catch (e) {
       debugPrint('Error checking profile configuration: $e');
       return false;
