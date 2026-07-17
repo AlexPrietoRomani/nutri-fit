@@ -86,6 +86,32 @@ Database: nutri-fit
 | `carbs_g` | `REAL` | `NOT NULL` | Carbohidratos (estimación) |
 | `fat_g` | `REAL` | `NOT NULL` | Grasas (estimación) |
 | `serving_size_g` | `REAL` | `NOT NULL` | Porción típica en gramos |
+| `ingredients` | `JSONB` | nullable (F18) | Composición del plato `[{ingredient_id, grams}]` (FK lógico a `nutrition.ingredients`). NULL → el plato usa sus macros planas de arriba. 12 platos compuestos. Ver ADR 16 |
+
+#### Tabla: `nutrition.ingredients`
+> Ingredientes base peruanos con macros **y micronutrientes por 100 g/ml** (F18, 42 filas). Lectura pública (`GRANT SELECT` a anon/authenticated, sin RLS — mismo patrón que `food_catalog`/`exercises`). Es el nivel reutilizable sobre el que se componen los platos de `food_catalog.ingredients`. **Micros: subconjunto PARCIAL de 7, valores estimados de tablas de composición estándar (referencia INS/CENAN), marcados como parciales en el `COMMENT`; los no fiables quedan NULL — nunca inventados.** Ver ADR 16.
+
+| Columna | Tipo | Restricción | Descripción |
+|---|---|---|---|
+| `id` | `INTEGER` | `PK` (explícito) | ID estable referenciado por `food_catalog.ingredients` |
+| `name` | `TEXT` | `UNIQUE NOT NULL` | Ej. "Pechuga de pollo" |
+| `category` | `TEXT` | | proteina/cereal/tuberculo/verdura/fruta/grasa/lacteo/legumbre |
+| `unit` | `TEXT` | `NOT NULL DEFAULT 'g'`, `CHECK IN ('g','ml')` | Unidad base |
+| `calories_per_100`, `protein_per_100`, `carbs_per_100`, `fat_per_100` | `REAL` | | Macros por 100 g/ml |
+| `iron_mg`, `calcium_mg`, `sodium_mg`, `potassium_mg`, `vitamin_c_mg`, `vitamin_a_ug`, `zinc_mg` | `REAL` | nullable | Micronutrientes por 100 g/ml (parcial; NULL si no fiable) |
+
+#### Tabla: `nutrition.food_preferences`
+> Preferencias/restricciones de nutrición del usuario (F18, "como hablar con un nutricionista"). Una fila por usuario, RLS `auth.uid() = user_id`. Se inyectan al prompt del generador de comida (alergias = restricción dura) y alimentan las alternativas. Ver ADR 16.
+
+| Columna | Tipo | Restricción | Descripción |
+|---|---|---|---|
+| `user_id` | `UUID` | `PK, FK -> public.users.id ON DELETE CASCADE` | Dueño (RLS `auth.uid() = user_id`) |
+| `allergies` | `TEXT[]` | `DEFAULT '{}'` | Alergias (nunca incluir) |
+| `dislikes` | `TEXT[]` | `DEFAULT '{}'` | No le gustan |
+| `avoid` | `TEXT[]` | `DEFAULT '{}'` | Evitar (no alérgico) |
+| `rarely` | `TEXT[]` | `DEFAULT '{}'` | Incluir muy poco |
+| `constraints` | `JSONB` | `DEFAULT '{}'` | `{no_fridge, missing_utensils, ...}` |
+| `updated_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Última edición |
 
 #### Tabla: `nutrition.meal_plans`
 > Planes de comida guardables (generados por IA o manuales) — plantilla reutilizable con comidas planificadas, distinta de `food_logs` que registra lo realmente comido. Añadida en F16 (mirror de `training.routines`). RLS `auth.uid() = user_id`. Ver ADR 14 en `architecture.md`.
@@ -96,7 +122,7 @@ Database: nutri-fit
 | `user_id` | `UUID` | `FK -> public.users.id ON DELETE CASCADE` | Dueño (RLS `auth.uid() = user_id`) |
 | `name` | `TEXT` | `NOT NULL` | Nombre elegido al guardar |
 | `source` | `TEXT` | `NOT NULL DEFAULT 'ai'`, `CHECK IN ('ai','manual')` | Origen del plan |
-| `meals` | `JSONB` | `NOT NULL` | `[{meal_type, food_name, calories, protein_g, carbs_g, fat_g, serving_size_g}]` — sin tabla relacional aparte |
+| `meals` | `JSONB` | `NOT NULL` | 1 día: `[{meal_type, food_name, calories, protein_g, carbs_g, fat_g, serving_size_g}]`. Multi-día (F18): `{"days":[{"day":n, "meals":[...]}]}` en el mismo campo; un normalizador puro lee ambas formas (compat. hacia atrás). Ver ADR 16 |
 | `is_default` | `BOOLEAN` | `NOT NULL DEFAULT FALSE` | Plan "de hoy". Índice único parcial `uq_meal_plans_default_per_user (user_id) WHERE is_default` → máximo uno por usuario |
 | `created_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Fecha de guardado |
 
@@ -155,7 +181,7 @@ Database: nutri-fit
 | `user_id` | `UUID` | `FK -> public.users.id ON DELETE CASCADE` | Dueño (RLS `auth.uid() = user_id`) |
 | `name` | `TEXT` | `NOT NULL` | Nombre elegido por el usuario al guardar |
 | `source` | `TEXT` | `NOT NULL DEFAULT 'ai'`, `CHECK IN ('ai','manual')` | Origen de la rutina |
-| `items` | `JSONB` | `NOT NULL` | `[{exercise_id, name, sets, reps, rpe}]` — sin tabla relacional aparte, no hay hoy necesidad de queries por item individual |
+| `items` | `JSONB` | `NOT NULL` | 1 día: `[{exercise_id, name, sets, reps, rpe}]`. Multi-día (F18): `{"days":[{"day":n, "items":[...], "cardio_block"?}]}` en el mismo campo, normalizado para compat. hacia atrás. Ver ADR 16 |
 | `cardio_block` | `TEXT` | | Bloque de cardio en texto libre (p. ej. caminadora), si aplica |
 | `is_default` | `BOOLEAN` | `NOT NULL DEFAULT FALSE` | Rutina "de hoy" (añadida en F16). Índice único parcial `uq_routines_default_per_user (user_id) WHERE is_default` → máximo una por usuario |
 | `created_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Fecha de guardado |
@@ -168,5 +194,6 @@ Materializado en `docker/postgres/zzz_auth_rls.sql` (Fase F10, T10.2.1/T10.2.2).
 
 - `public.users.id` tiene FK real `fk_users_auth → auth.users(id) ON DELETE CASCADE`. No existe trigger de auto-provisión: el perfil se crea en el Onboarding de la app (`frontend/lib/features/auth/onboarding_provider.dart`), que es el único punto con los datos NOT NULL (`name`, `birth_date`, `gender`, `height_cm`) que GoTrue no conoce en el signup.
 - **RLS habilitado** (política `auth.uid() = <columna de dueño>`, `USING` + `WITH CHECK`) en: `public.users` (por `id`), `nutrition.user_goals` (por `user_id`), `nutrition.food_logs` (por `user_id`), `training.workout_sessions` (por `user_id`). `training.workout_sets` no tiene `user_id` propio: su política valida por subquery contra `training.workout_sessions.user_id` vía `session_id`.
-- **Catálogo público sin RLS:** `training.exercises` y `nutrition.food_cache` (sin dueño) — accesibles vía `GRANT` a `anon` y `authenticated`.
+- **Catálogo público sin RLS:** `training.exercises`, `nutrition.food_cache`, `nutrition.food_catalog` y `nutrition.ingredients` (sin dueño) — accesibles vía `GRANT` a `anon` y `authenticated`.
+- **RLS por usuario (F18):** `nutrition.food_preferences` (por `user_id`), `nutrition.meal_plans` y `training.routines` (por `user_id`).
 - Las requests autenticadas corren como rol `authenticated` (no `anon`); `zzz_auth_rls.sql` otorga a `authenticated` los mismos `GRANT`s que `z_init.sql` ya daba a `anon` sobre las 5 tablas de usuario y el catálogo.

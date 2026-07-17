@@ -1183,7 +1183,7 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ---
 
-## F18: Chat Nutricionista/Entrenador — Contexto, Multi-Semana, Preferencias, Micronutrientes, Alternativas [/]
+## F18: Chat Nutricionista/Entrenador — Contexto, Multi-Semana, Preferencias, Micronutrientes, Alternativas [X]
 
 > Convierte el chat en un asistente tipo nutricionista/entrenador: recuerda la conversación, genera planes de ≥1 semana variados, repregunta si es ambiguo, respeta preferencias/restricciones, muestra micronutrientes reales y da alternativas. Fase grande (todo junto por decisión del usuario), secuenciada: contexto primero.
 > **AC de Fase:** historial en `/chat-plan` (arregla "hazlo a 3 semanas") · planes multi-día JSONB variados con compat. hacia atrás · repreguntas ante ambigüedad · `nutrition.food_preferences` (RLS) inyectadas al prompt · micronutrientes REALES (INS/CENAN; fallback parcial documentado, nunca inventados) · alternativas por restricción · ADR 16. **Requiere `docker compose down -v`.**
@@ -1311,13 +1311,13 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** widget test — editar la porción de un ingrediente recalcula los macros mostrados; quitar un ingrediente los reduce (con seams, sin Supabase real).
 - **🎭 Tests de Simulación de Usuario:** elegir un plato → cambiar 300 g de arroz a 150 g → ver kcal bajar → guardar.
 
-### SF18.7: Documentación [ ]
+### SF18.7: Documentación [X]
 
-#### T18.7.1: ADR 16 + esquema en `diseno_db.md` [ ]
+#### T18.7.1: ADR 16 + esquema en `diseno_db.md` [X]
 - **🧠 Explicación:** Documentar contexto conversacional, planes multi-día, preferencias, micronutrientes (con su origen/fallback) y alternativas.
 - **💡 Cómo hacerlo:** ADR 16 en `architecture.md`; en `diseno_db.md`: shape `days`, `nutrition.food_preferences`, micros en `food_catalog`.
 - **Acciones:**
-  - `[ ]` A18.7.1.1: ADR 16 en `architecture.md`.
-  - `[ ]` A18.7.1.2: Esquema nuevo en `diseno_db.md` (days, `food_preferences`, micros, `ingredients` + composición de `food_catalog`).
+  - `[X]` A18.7.1.1: ADR 16 en `architecture.md`.
+  - `[X]` A18.7.1.2: Esquema nuevo en `diseno_db.md` (days, `food_preferences`, micros, `ingredients` + composición de `food_catalog`).
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
