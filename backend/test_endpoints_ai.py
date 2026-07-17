@@ -260,6 +260,57 @@ def test_extract_intent_sin_historial_no_regresion(monkeypatch):
     assert "Contexto de la conversación" not in prompts[0]
 
 
+# --- T18.3.1: detección de ambigüedad → pregunta de clarificación ---
+
+def test_chat_plan_ambiguo_repregunta(monkeypatch):
+    # "Hazme una rutina" sin equipo ni historial: el LLM marca ambigüedad y el
+    # endpoint repregunta en vez de generar.
+    def fake_ai(cfg, prompt, want_json=False):
+        return _json.dumps({
+            "wants_workout": True, "wants_meal_plan": False,
+            "equipment": [], "has_cardio_equipment": False,
+            "goal": "muscle_gain", "preferences": None,
+            "needs_clarification": True,
+            "clarifying_question": "¿Qué equipo tienes: casa, gym o sin equipo?",
+        })
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={"message": "hazme una rutina", "ai": AICFG})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["needs_clarification"] is True
+    assert body["reply"] == "¿Qué equipo tienes: casa, gym o sin equipo?"
+    assert body["workout"] is None
+    assert body["meal_plan"] is None
+
+
+def test_chat_plan_completo_no_repregunta(monkeypatch):
+    # Con el equipo dado no hay ambigüedad: genera normal y needs_clarification=False.
+    monkeypatch.setattr(
+        main, "_fetch_exercise_candidates",
+        lambda bp, eq, limit=40: [
+            {"id": 5, "name": "Swing", "body_part": "full_body", "equipment": "kettlebells"},
+        ],
+    )
+
+    def fake_ai(cfg, prompt, want_json=False):
+        if "wants_workout" in prompt:
+            return _json.dumps({
+                "wants_workout": True, "wants_meal_plan": False,
+                "equipment": ["pesa rusa"], "has_cardio_equipment": False,
+                "goal": "muscle_gain", "preferences": None,
+                "needs_clarification": False, "clarifying_question": None,
+            })
+        return '{"items":[{"exercise_id":5,"sets":3,"reps":15,"rpe":7}]}'
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={"message": "rutina con pesa rusa", "ai": AICFG})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["needs_clarification"] is False
+    assert body["workout"]["items"] == [{"exercise_id": 5, "sets": 3, "reps": 15, "rpe": 7, "name": "Swing"}]
+
+
 def test_identify_machine_con_ai(monkeypatch):
     reply = _json.dumps({
         "machine_name": "Leg Press", "description": "empuje de piernas",

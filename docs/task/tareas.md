@@ -1219,14 +1219,14 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** el prompt construido contiene las alergias/restricciones dadas; widget test de la pantalla (guarda/lee).
 - **🎭 Tests de Simulación de Usuario:** declarar alergia al maní → el plan generado no incluye maní.
 
-### SF18.3: Repreguntar cuando es ambiguo [ ]
+### SF18.3: Repreguntar cuando es ambiguo [X]
 
-#### T18.3.1: Detección de ambigüedad → pregunta de clarificación [ ]
+#### T18.3.1: Detección de ambigüedad → pregunta de clarificación [X]
 - **🧠 Explicación:** Ante una petición ambigua (rutina sin equipo, comida sin metas/días), repreguntar en vez de generar a medias. Depende de SF18.1 (con el historial, el siguiente turno genera).
 - **💡 Cómo hacerlo:** en `_extract_intent`/`chat_plan`, si faltan datos clave (p. ej. `wants_workout` pero sin equipo, o comida sin días/metas), devolver `{reply: "<pregunta>", needs_clarification: true, workout: null, meal_plan: null}`; el frontend muestra la pregunta como mensaje del asistente; el usuario responde y, con el historial (SF18.1), el orquestador ya genera.
 - **Acciones:**
-  - `[ ]` A18.3.1.1: Detección de ambigüedad + pregunta de clarificación.
-  - `[ ]` A18.3.1.2: Continuación con historial (genera tras la respuesta del usuario).
+  - `[X]` A18.3.1.1: Detección de ambigüedad + pregunta de clarificación.
+  - `[X]` A18.3.1.2: Continuación con historial (genera tras la respuesta del usuario).
 - **✅ Tests Unitarios:** mensaje ambiguo (mock) → `needs_clarification` con pregunta, sin plan; mensaje completo → genera.
 - **🎭 Tests de Simulación de Usuario:** "hazme una rutina" (sin equipo) → el chat pregunta qué equipo tienes → responder → genera.
 

@@ -423,6 +423,9 @@ class ChatPlanResponse(BaseModel):
     reply: str
     workout: Optional[dict] = None
     meal_plan: Optional[dict] = None
+    # True cuando la petición es ambigua y el reply es una pregunta de clarificación
+    # en vez de un plan generado (T18.3.1).
+    needs_clarification: bool = False
 
 
 def _extract_intent(ai: AIConfig, message: str, history: Optional[list] = None) -> dict:
@@ -455,7 +458,16 @@ def _extract_intent(ai: AIConfig, message: str, history: Optional[list] = None) 
         '{"wants_workout": bool, "wants_meal_plan": bool, '
         '"equipment": ["lista de implementos mencionados en texto libre"], '
         '"has_cardio_equipment": bool, '
-        '"goal": "weight_loss|muscle_gain|maintenance", "preferences": "string o null"}'
+        '"goal": "weight_loss|muscle_gain|maintenance", "preferences": "string o null", '
+        '"needs_clarification": bool, "clarifying_question": "string o null"}\n'
+        "Actúa como un nutricionista/entrenador real: si falta un dato clave para "
+        "generar bien, marca needs_clarification=true y escribe en clarifying_question "
+        "una única pregunta breve en español. Reglas de ambigüedad:\n"
+        "- Quiere rutina pero no dijo qué EQUIPO/lugar tiene (casa/gym/sin equipo).\n"
+        "- Quiere plan de comida pero no hay meta/objetivo NI perfil ni preferencias claras.\n"
+        "- Petición demasiado vaga (\"ayúdame\", \"hazme algo\").\n"
+        "Usa el HISTORIAL: si en turnos previos el usuario YA dio el equipo o el "
+        "objetivo, NO vuelvas a preguntar (needs_clarification=false)."
     )
     return _parse_json_or_502(_run_ai(ai, prompt, want_json=True))
 
@@ -493,6 +505,17 @@ def analyze_progress(req: ProgressRequest):
 def chat_plan(req: ChatPlanRequest):
     """Orquestador: interpreta un mensaje libre y arma rutina y/o plan de comidas."""
     intent = _extract_intent(req.ai, req.message, req.history)
+    # Petición ambigua: repreguntar como haría un entrenador real, sin generar a
+    # medias. El historial ya viaja, así que la respuesta del usuario llega en el
+    # siguiente turno y ahí el LLM baja needs_clarification (T18.3.1).
+    if intent.get("needs_clarification"):
+        return ChatPlanResponse(
+            reply=intent.get("clarifying_question")
+            or "¿Podrías darme más detalle? Dime qué equipo/lugar tienes (casa, gym o sin equipo) y tu objetivo.",
+            needs_clarification=True,
+            workout=None,
+            meal_plan=None,
+        )
     workout = meal_plan = None
     if intent.get("wants_workout"):
         equipment_mentioned = [e.lower() for e in intent.get("equipment", [])]
