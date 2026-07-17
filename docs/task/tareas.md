@@ -1183,19 +1183,19 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ---
 
-## F18: Chat Nutricionista/Entrenador — Contexto, Multi-Semana, Preferencias, Micronutrientes, Alternativas [ ]
+## F18: Chat Nutricionista/Entrenador — Contexto, Multi-Semana, Preferencias, Micronutrientes, Alternativas [/]
 
 > Convierte el chat en un asistente tipo nutricionista/entrenador: recuerda la conversación, genera planes de ≥1 semana variados, repregunta si es ambiguo, respeta preferencias/restricciones, muestra micronutrientes reales y da alternativas. Fase grande (todo junto por decisión del usuario), secuenciada: contexto primero.
 > **AC de Fase:** historial en `/chat-plan` (arregla "hazlo a 3 semanas") · planes multi-día JSONB variados con compat. hacia atrás · repreguntas ante ambigüedad · `nutrition.food_preferences` (RLS) inyectadas al prompt · micronutrientes REALES (INS/CENAN; fallback parcial documentado, nunca inventados) · alternativas por restricción · ADR 16. **Requiere `docker compose down -v`.**
 
-### SF18.1: Memoria de conversación (contexto) [ ]
+### SF18.1: Memoria de conversación (contexto) [X]
 
-#### T18.1.1: Historial en `/chat-plan` + `_extract_intent` [ ]
+#### T18.1.1: Historial en `/chat-plan` + `_extract_intent` [X]
 - **🧠 Explicación:** Causa raíz del bug: `/chat-plan` recibe solo `req.message` y `_extract_intent` la interpreta aislada. Hay que enviar y usar el historial de la conversación (`AiProvider._messages` ya existe en memoria) para resolver referencias como "hazlo a 3 semanas".
 - **💡 Cómo hacerlo:** en `ai_provider.dart`, `sendMessage` incluye en el body `history: [{role, text}, ...]` (los `_messages` previos, acotados a los últimos ~10). En `main.py`, `ChatPlanRequest` gana `history: Optional[list] = None`; `_extract_intent(ai, message, history)` antepone el historial al prompt de extracción para que la intención/objetivo se resuelva con contexto (ej. si el turno previo fue un plan de comida, "3 semanas" → comida multi-semana). El servidor sigue stateless (historial por request).
 - **Acciones:**
-  - `[ ]` A18.1.1.1: `sendMessage` envía `history`; `ChatPlanRequest` lo recibe.
-  - `[ ]` A18.1.1.2: `_extract_intent` usa el historial para resolver intención/referencia.
+  - `[X]` A18.1.1.1: `sendMessage` envía `history`; `ChatPlanRequest` lo recibe.
+  - `[X]` A18.1.1.2: `_extract_intent` usa el historial para resolver intención/referencia.
 - **✅ Tests Unitarios:** con historial mockeado donde el turno previo fue comida, un mensaje "hazlo a 3 semanas" → intención `wants_meal_plan=true` (no workout); conteo de llamadas al LLM sin regresión.
 - **🎭 Tests de Simulación de Usuario:** (Ollama real) pedir plan de comida → "hazlo a 3 semanas" → recibir plan de comida, no rutina.
 

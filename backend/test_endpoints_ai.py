@@ -189,6 +189,77 @@ def test_chat_plan_degrada_sin_equipo_reconocido(monkeypatch):
     assert r.json()["workout"] == {"items": []}
 
 
+def test_extract_intent_usa_historial_para_resolver_referencia(monkeypatch):
+    # El turno previo fue de comida; "hazlo a 3 semanas" debe resolverse como
+    # plan de comida (no rutina) gracias al historial (bug T18.1.1).
+    prompts = []
+
+    def fake_ai(cfg, prompt, want_json=False):
+        prompts.append(prompt)
+        return _json.dumps({
+            "wants_workout": False, "wants_meal_plan": True,
+            "equipment": [], "has_cardio_equipment": False,
+            "goal": "maintenance", "preferences": None,
+        })
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    history = [
+        {"role": "user", "text": "dame un plan de comida"},
+        {"role": "assistant", "text": "Aquí tienes tu plan de comidas para hoy."},
+    ]
+    intent = main._extract_intent(main.AIConfig(**AICFG), "hazlo a 3 semanas", history)
+    assert intent["wants_meal_plan"] is True
+    assert intent["wants_workout"] is False
+    # El historial debe llegar al prompt de extracción.
+    assert "plan de comida" in prompts[0]
+    assert "asistente:" in prompts[0]
+
+
+def test_chat_plan_con_historial_resuelve_meal_no_workout(monkeypatch):
+    def fake_ai(cfg, prompt, want_json=False):
+        if "wants_workout" in prompt:
+            assert "plan de comida" in prompt  # historial presente en el prompt
+            return _json.dumps({
+                "wants_workout": False, "wants_meal_plan": True,
+                "equipment": [], "has_cardio_equipment": False,
+                "goal": "maintenance", "preferences": None,
+            })
+        return '{"meals":[{"meal_type":"dinner","food_name":"Pescado","calories":350,' \
+               '"protein_g":35,"carbs_g":20,"fat_g":8,"serving_size_g":250}]}'
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={
+        "message": "hazlo a 3 semanas",
+        "history": [
+            {"role": "user", "text": "dame un plan de comida"},
+            {"role": "assistant", "text": "Aquí tienes tu plan de comidas."},
+        ],
+        "ai": AICFG,
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["workout"] is None
+    assert body["meal_plan"] is not None
+
+
+def test_extract_intent_sin_historial_no_regresion(monkeypatch):
+    # Sin historial el prompt no debe llevar sección de contexto (comportamiento previo).
+    prompts = []
+
+    def fake_ai(cfg, prompt, want_json=False):
+        prompts.append(prompt)
+        return _json.dumps({
+            "wants_workout": True, "wants_meal_plan": False,
+            "equipment": [], "has_cardio_equipment": False,
+            "goal": "muscle_gain", "preferences": None,
+        })
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    intent = main._extract_intent(main.AIConfig(**AICFG), "quiero una rutina")
+    assert intent["wants_workout"] is True
+    assert "Contexto de la conversación" not in prompts[0]
+
+
 def test_identify_machine_con_ai(monkeypatch):
     reply = _json.dumps({
         "machine_name": "Leg Press", "description": "empuje de piernas",

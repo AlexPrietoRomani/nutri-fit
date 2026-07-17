@@ -413,6 +413,9 @@ def generate_workout_plan(req: WorkoutPlanRequest):
 class ChatPlanRequest(BaseModel):
     message: str
     profile: Optional[dict] = None
+    # Historial de la conversación (el servidor es stateless: el historial viaja
+    # por request). Cada item: {"role": "user"|"assistant", "text": str}.
+    history: Optional[list] = None
     ai: AIConfig
 
 
@@ -422,9 +425,31 @@ class ChatPlanResponse(BaseModel):
     meal_plan: Optional[dict] = None
 
 
-def _extract_intent(ai: AIConfig, message: str) -> dict:
-    """Usa el LLM para clasificar qué quiere el usuario (rutina/plan de comidas/equipo)."""
+def _extract_intent(ai: AIConfig, message: str, history: Optional[list] = None) -> dict:
+    """Usa el LLM para clasificar qué quiere el usuario (rutina/plan de comidas/equipo).
+
+    Si se pasa historial, se antepone al prompt como contexto de la conversación
+    para que el LLM resuelva referencias ("hazlo a 3 semanas") respecto al último
+    plan mencionado, en vez de interpretar el mensaje aislado (bug T18.1.1).
+    """
+    context = ""
+    if history:
+        # Solo los últimos ~10 turnos: suficiente para resolver la referencia y
+        # acota el prompt para no dispararse en conversaciones largas.
+        turnos = []
+        for item in history[-10:]:
+            rol = "usuario" if item.get("role") == "user" else "asistente"
+            turnos.append(f"{rol}: {item.get('text', '')}")
+        context = (
+            "Contexto de la conversación (turnos previos):\n"
+            + "\n".join(turnos)
+            + "\n\nResuelve referencias del mensaje respecto a este contexto: si el "
+            "mensaje alude a un plan previo (p. ej. \"hazlo a 3 semanas\") clasifícalo "
+            "según el último plan mencionado (si el turno previo fue de comida, "
+            "\"3 semanas\" implica wants_meal_plan; si fue de rutina, wants_workout).\n\n"
+        )
     prompt = (
+        f"{context}"
         f"Analiza este mensaje de un usuario de una app de fitness: \"{message}\"\n"
         "Devuelve SOLO un JSON con esta forma exacta:\n"
         '{"wants_workout": bool, "wants_meal_plan": bool, '
@@ -467,7 +492,7 @@ def analyze_progress(req: ProgressRequest):
 @app.post("/chat-plan", response_model=ChatPlanResponse)
 def chat_plan(req: ChatPlanRequest):
     """Orquestador: interpreta un mensaje libre y arma rutina y/o plan de comidas."""
-    intent = _extract_intent(req.ai, req.message)
+    intent = _extract_intent(req.ai, req.message, req.history)
     workout = meal_plan = None
     if intent.get("wants_workout"):
         equipment_mentioned = [e.lower() for e in intent.get("equipment", [])]

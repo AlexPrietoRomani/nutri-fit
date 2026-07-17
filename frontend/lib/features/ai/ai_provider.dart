@@ -63,6 +63,15 @@ class AiProvider extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    // Historial PREVIO (antes de añadir el mensaje actual), últimos 10 turnos.
+    // El servidor es stateless: el historial viaja por request para que
+    // _extract_intent resuelva referencias como "hazlo a 3 semanas" (T18.1.1).
+    final history = _messages
+        .map((m) => {'role': m.role, 'text': m.text})
+        .toList();
+    final recentHistory =
+        history.length > 10 ? history.sublist(history.length - 10) : history;
+
     _messages.add(ChatMessage('user', message));
     _isLoading = true;
     _error = null;
@@ -75,6 +84,7 @@ class AiProvider extends ChangeNotifier {
         body: jsonEncode({
           'message': message,
           if (profile != null) 'profile': profile,
+          'history': recentHistory,
           'ai': _config!.toJson(),
         }),
       );

@@ -94,6 +94,30 @@ void main() {
       expect((last.mealPlan!['meals'] as List).first['food_name'], 'Avena con fruta');
     });
 
+    test('el segundo POST incluye history con el primer intercambio', () async {
+      final bodies = <Map<String, dynamic>>[];
+      final mock = MockClient((req) async {
+        bodies.add(jsonDecode(req.body) as Map<String, dynamic>);
+        return http.Response(
+            jsonEncode({'reply': 'resp', 'workout': null, 'meal_plan': null}), 200,
+            headers: {'content-type': 'application/json'});
+      });
+      final p = AiProvider(
+        httpClient: mock,
+        config: AIConfig(provider: 'openai', model: 'm'),
+      );
+      await p.sendMessage('dame un plan de comida');
+      await p.sendMessage('hazlo a 3 semanas');
+
+      // Primer POST: sin historial previo.
+      expect(bodies[0]['history'], isEmpty);
+      // Segundo POST: historial con el primer intercambio (user + assistant).
+      final history = bodies[1]['history'] as List;
+      expect(history.length, 2);
+      expect(history[0], {'role': 'user', 'text': 'dame un plan de comida'});
+      expect(history[1], {'role': 'assistant', 'text': 'resp'});
+    });
+
     test('un 503 del backend se refleja como error', () async {
       final mock = MockClient((req) async =>
           http.Response(jsonEncode({'detail': 'sin proveedor'}), 503,
