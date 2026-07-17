@@ -399,7 +399,9 @@ class _DiaryScreenState extends State<DiaryScreen> {
             separatorBuilder: (context, index) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final plan = provider.mealPlans[index];
-              final mealCount = (plan['meals'] as List? ?? const []).length;
+              // Soporta planes multi-día (T18.4.2): cuenta las comidas del día 1.
+              final days = normalizePlanDays(planFromRow(plan, 'meals'), 'meals');
+              final mealCount = (days.first['meals'] as List? ?? const []).length;
               return Card(
                 color: const Color(0xFF1E201E),
                 child: Padding(
@@ -602,7 +604,10 @@ class _DiaryScreenState extends State<DiaryScreen> {
     final defaultPlan = context.watch<NutritionProvider>().defaultMealPlan;
     if (defaultPlan == null) return null;
 
-    final plannedItems = (defaultPlan['meals'] as List? ?? const [])
+    // ponytail: compara contra el día 1 del plan default (multi-día, T18.4.2);
+    // lógica de calendario por día queda fuera de alcance.
+    final planDay = normalizePlanDays(planFromRow(defaultPlan, 'meals'), 'meals').first;
+    final plannedItems = (planDay['meals'] as List? ?? const [])
         .cast<Map<String, dynamic>>()
         .where((m) => m['meal_type'] == mealType)
         .toList();

@@ -1230,23 +1230,23 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** mensaje ambiguo (mock) → `needs_clarification` con pregunta, sin plan; mensaje completo → genera.
 - **🎭 Tests de Simulación de Usuario:** "hazme una rutina" (sin equipo) → el chat pregunta qué equipo tienes → responder → genera.
 
-### SF18.4: Planes multi-día / multi-semana variados [ ]
+### SF18.4: Planes multi-día / multi-semana variados [X]
 
-#### T18.4.1: Esquema `days` + generación multi-día [ ]
+#### T18.4.1: Esquema `days` + generación multi-día [X]
 - **🧠 Explicación:** Hoy `meal_plans.meals`/`routines.items` son de 1 día. Se extiende el JSONB a estructura por día (`days: [{day, items|meals}]`), variando músculos/comidas por día. Compat. hacia atrás: un plan sin `days` se lee como 1 día.
 - **💡 Cómo hacerlo:** el orquestador genera `days` (≥7) variados (ej. push/pull/legs/…; comidas distintas). No hace falta cambiar el TIPO de columna (sigue JSONB), pero sí el shape que guarda/lee el frontend; añadir un helper que normalice "1 día viejo" ↔ "days nuevo". Requiere `down -v` solo si se añaden columnas (evaluar; puede no hacer falta si es solo shape JSONB).
 - **Acciones:**
-  - `[ ]` A18.4.1.1: Shape `days` + normalización compat. hacia atrás.
-  - `[ ]` A18.4.1.2: Generación multi-día variada en el orquestador (prompt).
+  - `[X]` A18.4.1.1: Shape `days` + normalización compat. hacia atrás.
+  - `[X]` A18.4.1.2: Generación multi-día variada en el orquestador (prompt).
 - **✅ Tests Unitarios:** el parser lee un plan `days` de 7 días y uno viejo de 1 día sin romper; la generación (mock) devuelve N días con contenido distinto entre días.
 - **🎭 Tests de Simulación de Usuario:** pedir "rutina semanal" → recibir 7 días con músculos distintos; "plan de comida de 2 semanas" → 14 días variados.
 
-#### T18.4.2: UI de navegación por días [ ]
+#### T18.4.2: UI de navegación por días [X]
 - **🧠 Explicación:** Las tarjetas del chat, "Mis Rutinas"/"Mis Planes de Comida", y el Dashboard deben mostrar/navegar los días.
 - **💡 Cómo hacerlo:** en las tarjetas y pantallas, si el plan tiene `days`, un selector de día (tabs/PageView) o lista por día; si es de 1 día, se ve como antes.
 - **Acciones:**
-  - `[ ]` A18.4.2.1: Navegación por días en la tarjeta del chat.
-  - `[ ]` A18.4.2.2: Navegación por días en "Mis Rutinas"/"Mis Planes"/Dashboard.
+  - `[X]` A18.4.2.1: Navegación por días en la tarjeta del chat.
+  - `[X]` A18.4.2.2: Navegación por días en "Mis Rutinas"/"Mis Planes"/Dashboard.
 - **✅ Tests Unitarios:** widget test — un plan de N días renderiza el selector y muestra el día elegido; uno de 1 día se ve sin selector.
 - **🎭 Tests de Simulación de Usuario:** abrir un plan semanal guardado → cambiar de día → ver contenido distinto.
 

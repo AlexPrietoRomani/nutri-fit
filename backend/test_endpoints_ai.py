@@ -311,6 +311,114 @@ def test_chat_plan_completo_no_repregunta(monkeypatch):
     assert body["workout"]["items"] == [{"exercise_id": 5, "sets": 3, "reps": 15, "rpe": 7, "name": "Swing"}]
 
 
+# --- T18.4.1: planes multi-día variados ---
+
+def test_meal_plan_num_days_1_shape_viejo(monkeypatch):
+    # num_days=1 debe mantener el shape plano {"meals":[...]} sin 'days'.
+    monkeypatch.setattr(
+        main, "ai_generate",
+        lambda *a, **k: '{"meals":[{"meal_type":"lunch","food_name":"Pollo","calories":400,'
+                        '"protein_g":40,"carbs_g":30,"fat_g":10,"serving_size_g":300}]}',
+    )
+    plan = main._build_meal_plan(main.AIConfig(**AICFG), {"target_calories": 1800}, None, num_days=1)
+    assert "days" not in plan
+    assert isinstance(plan["meals"], list) and len(plan["meals"]) == 1
+
+
+def test_meal_plan_num_days_7_varia(monkeypatch):
+    # num_days=7 → 'days' con 7 entradas y platos distintos entre al menos dos días.
+    calls = {"n": 0}
+
+    def fake_ai(cfg, prompt, want_json=False):
+        calls["n"] += 1
+        # Cada día genera un food_name distinto para probar la variación.
+        return (
+            '{"meals":[{"meal_type":"lunch","food_name":"Plato %d","calories":400,'
+            '"protein_g":40,"carbs_g":30,"fat_g":10,"serving_size_g":300}]}' % calls["n"]
+        )
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    plan = main._build_meal_plan(main.AIConfig(**AICFG), {"target_calories": 1800}, None, num_days=7)
+    assert "meals" not in plan
+    assert len(plan["days"]) == 7
+    assert [d["day"] for d in plan["days"]] == list(range(1, 8))
+    names = {d["meals"][0]["food_name"] for d in plan["days"]}
+    assert len(names) >= 2  # contenido distinto entre días
+
+
+def test_workout_num_days_1_shape_viejo(monkeypatch):
+    monkeypatch.setattr(
+        main, "_fetch_exercise_candidates",
+        lambda bp, eq, limit=40: [{"id": 1, "name": "Press", "body_part": "chest", "equipment": "dumbbell"}],
+    )
+    monkeypatch.setattr(
+        main, "ai_generate",
+        lambda *a, **k: '{"items":[{"exercise_id":1,"sets":3,"reps":10,"rpe":8}]}',
+    )
+    plan = main._build_workout_plan(main.AIConfig(**AICFG), "muscle_gain", None, None, num_days=1)
+    assert "days" not in plan
+    assert plan["items"] == [{"exercise_id": 1, "sets": 3, "reps": 10, "rpe": 8, "name": "Press"}]
+
+
+def test_workout_num_days_7_varia_y_filtra(monkeypatch):
+    # Devuelve un catálogo distinto por grupo muscular (según body_part pedido) y
+    # el modelo elige un id distinto cada día → ejercicios distintos entre días.
+    catalog = {
+        "chest": [{"id": 1, "name": "Press", "body_part": "chest", "equipment": "dumbbell"}],
+        "back": [{"id": 2, "name": "Row", "body_part": "back", "equipment": "dumbbell"}],
+        "legs": [{"id": 3, "name": "Squat", "body_part": "legs", "equipment": "dumbbell"}],
+        "shoulders": [{"id": 4, "name": "OHP", "body_part": "shoulders", "equipment": "dumbbell"}],
+        "arms": [{"id": 5, "name": "Curl", "body_part": "arms", "equipment": "dumbbell"}],
+        "core": [{"id": 6, "name": "Plank", "body_part": "core", "equipment": "dumbbell"}],
+        "full_body": [{"id": 7, "name": "Swing", "body_part": "full_body", "equipment": "dumbbell"}],
+    }
+    monkeypatch.setattr(main, "_fetch_exercise_candidates", lambda bp, eq, limit=40: catalog.get(bp, []))
+
+    def fake_ai(cfg, prompt, want_json=False):
+        # El modelo devuelve el id del ejercicio presente en el catálogo del día
+        # (más un id alucinado que el filtro debe descartar).
+        import re
+        ids = re.findall(r'"id":\s*(\d+)', prompt)
+        real = int(ids[0])
+        return '{"items":[{"exercise_id":%d,"sets":3,"reps":10,"rpe":8},{"exercise_id":999,"sets":1,"reps":1}]}' % real
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    plan = main._build_workout_plan(main.AIConfig(**AICFG), "muscle_gain", None, None, num_days=7)
+    assert "items" not in plan
+    assert len(plan["days"]) == 7
+    # Cada día filtra el id alucinado (999) y conserva el real.
+    for d in plan["days"]:
+        assert all(it["exercise_id"] != 999 for it in d["items"])
+    used_ids = {d["items"][0]["exercise_id"] for d in plan["days"]}
+    assert len(used_ids) >= 2  # grupos musculares distintos entre días
+
+
+def test_chat_plan_semana_genera_7_dias(monkeypatch):
+    monkeypatch.setattr(
+        main, "_fetch_exercise_candidates",
+        lambda bp, eq, limit=40: [{"id": 1, "name": "X", "body_part": bp or "full_body", "equipment": "dumbbell"}],
+    )
+
+    def fake_ai(cfg, prompt, want_json=False):
+        if "wants_workout" in prompt:
+            return _json.dumps({
+                "wants_workout": False, "wants_meal_plan": True,
+                "equipment": [], "has_cardio_equipment": False,
+                "goal": "maintenance", "preferences": None,
+                "num_days": 7, "needs_clarification": False, "clarifying_question": None,
+            })
+        return ('{"meals":[{"meal_type":"lunch","food_name":"Plato","calories":400,'
+                '"protein_g":40,"carbs_g":30,"fat_g":10,"serving_size_g":300}]}')
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={"message": "plan de comida para la semana", "ai": AICFG})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["meal_plan"] is not None
+    assert len(body["meal_plan"]["days"]) == 7
+    assert "7 días" in body["reply"]
+
+
 def test_identify_machine_con_ai(monkeypatch):
     reply = _json.dumps({
         "machine_name": "Leg Press", "description": "empuje de piernas",

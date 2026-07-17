@@ -326,12 +326,24 @@ class MealPlanRequest(BaseModel):
     ai: AIConfig
 
 
-def _build_meal_plan(ai: AIConfig, goals: dict, preferences: Optional[str]) -> dict:
-    """Genera un plan de comidas en JSON coherente con las metas del usuario."""
+MAX_PLAN_DAYS = 28  # Tope de días para no explotar tokens en planes multi-día.
+
+
+def _build_single_meal_day(ai: AIConfig, goals: dict, preferences: Optional[str], avoid: Optional[list] = None) -> list:
+    """Genera las comidas (lista `meals`) de UN día coherente con las metas.
+
+    `avoid` es una lista de food_names ya usados en días previos: se instruye al
+    modelo a no repetirlos para forzar variedad entre días de un plan semanal.
+    """
+    variar = (
+        f"\nNO repitas estos platos ya usados en días previos: {json.dumps(avoid, ensure_ascii=False)}. "
+        "Propón comidas DISTINTAS."
+        if avoid else ""
+    )
     prompt = (
         f"{FITNESS_SYSTEM}\nGenera un plan de comidas para UN día que cumpla estas metas: "
         f"{json.dumps(goals, ensure_ascii=False)}. "
-        f"Preferencias: {preferences or 'ninguna'}.\n"
+        f"Preferencias: {preferences or 'ninguna'}.{variar}\n"
         "Devuelve SOLO un objeto JSON con esta forma exacta:\n"
         '{"meals": [{"meal_type": "breakfast|lunch|dinner|snack", "food_name": "str", '
         '"calories": num, "protein_g": num, "carbs_g": num, "fat_g": num, "serving_size_g": num}]}'
@@ -339,7 +351,26 @@ def _build_meal_plan(ai: AIConfig, goals: dict, preferences: Optional[str]) -> d
     data = _parse_json_or_502(_run_ai(ai, prompt, want_json=True))
     if not isinstance(data.get("meals"), list) or not data["meals"]:
         raise HTTPException(status_code=502, detail="El plan de comidas no contiene 'meals'.")
-    return data
+    return data["meals"]
+
+
+def _build_meal_plan(ai: AIConfig, goals: dict, preferences: Optional[str], num_days: int = 1) -> dict:
+    """Genera un plan de comidas coherente con las metas del usuario.
+
+    Con `num_days<=1` devuelve el shape plano `{"meals": [...]}` (compatibilidad
+    hacia atrás). Con `num_days>1` devuelve `{"days": [{"day": n, "meals": [...]}]}`
+    variando los platos entre días para que un plan semanal no repita el mismo menú.
+    """
+    if num_days <= 1:
+        return {"meals": _build_single_meal_day(ai, goals, preferences)}
+    num_days = min(num_days, MAX_PLAN_DAYS)
+    days: list = []
+    used_names: list = []
+    for day in range(1, num_days + 1):
+        meals = _build_single_meal_day(ai, goals, preferences, avoid=used_names[-20:])
+        used_names.extend(m.get("food_name") for m in meals if m.get("food_name"))
+        days.append({"day": day, "meals": meals})
+    return {"days": days}
 
 
 @app.post("/generate-meal-plan")
@@ -378,15 +409,22 @@ class WorkoutPlanRequest(BaseModel):
     ai: AIConfig
 
 
-def _build_workout_plan(ai: AIConfig, goal: Optional[str], body_part: Optional[str], equipment: Optional[str]) -> dict:
-    """Genera una rutina eligiendo SOLO ejercicios reales del catálogo."""
-    candidates = _fetch_exercise_candidates(body_part, equipment)
-    if not candidates:
-        raise HTTPException(status_code=404, detail="No hay ejercicios que coincidan con el filtro.")
+# Rotación de grupos musculares para planes multi-día (split tipo push/pull/legs
+# ampliado). Cada valor es un patrón ILIKE contra training.exercises.body_part.
+WORKOUT_SPLIT = ["chest", "back", "legs", "shoulders", "arms", "core", "full_body"]
+
+
+def _build_single_workout_day(ai: AIConfig, goal: Optional[str], candidates: List[dict], focus: Optional[str] = None) -> list:
+    """Genera los `items` de UN día eligiendo SOLO ejercicios reales del catálogo.
+
+    Mantiene el filtro anti-alucinación: descarta cualquier exercise_id que no
+    esté en `candidates` (los ejercicios reales consultados a la BD).
+    """
     valid_ids = {c["id"] for c in candidates}
     catalogo = json.dumps(candidates, ensure_ascii=False)
+    enfoque = f" enfocada en {focus}" if focus else ""
     prompt = (
-        f"{FITNESS_SYSTEM}\nArma una rutina para el objetivo: {goal or 'general'}.\n"
+        f"{FITNESS_SYSTEM}\nArma una rutina{enfoque} para el objetivo: {goal or 'general'}.\n"
         f"Elige ejercicios SOLO de este catálogo (usa exactamente sus id): {catalogo}\n"
         "Devuelve SOLO un objeto JSON con esta forma:\n"
         '{"items": [{"exercise_id": int, "sets": int, "reps": int, "rpe": num}]}'
@@ -397,12 +435,48 @@ def _build_workout_plan(ai: AIConfig, goal: Optional[str], body_part: Optional[s
         raise HTTPException(status_code=502, detail="La rutina no contiene 'items'.")
     # Descartar ejercicios alucinados (id fuera del catálogo consultado)
     names_by_id = {c["id"]: c["name"] for c in candidates}
-    filtered = [
+    return [
         {**it, "name": names_by_id[it["exercise_id"]]}
         for it in items
         if it.get("exercise_id") in valid_ids
     ]
-    return {"items": filtered}
+
+
+def _build_workout_plan(
+    ai: AIConfig,
+    goal: Optional[str],
+    body_part: Optional[str],
+    equipment: Optional[str],
+    num_days: int = 1,
+) -> dict:
+    """Genera una rutina eligiendo SOLO ejercicios reales del catálogo.
+
+    Con `num_days<=1` devuelve el shape plano `{"items": [...]}` (compatibilidad
+    hacia atrás). Con `num_days>1` devuelve `{"days": [{"day": n, "items": [...]}]}`
+    rotando el grupo muscular por día para que la semana no entrene siempre lo mismo.
+    """
+    if num_days <= 1:
+        candidates = _fetch_exercise_candidates(body_part, equipment)
+        if not candidates:
+            raise HTTPException(status_code=404, detail="No hay ejercicios que coincidan con el filtro.")
+        return {"items": _build_single_workout_day(ai, goal, candidates)}
+
+    num_days = min(num_days, MAX_PLAN_DAYS)
+    days: list = []
+    for day in range(1, num_days + 1):
+        # Rota el foco muscular; si el usuario fijó body_part, ese manda para el día 1
+        # y a partir de ahí se rota igual para asegurar variedad.
+        focus = body_part or WORKOUT_SPLIT[(day - 1) % len(WORKOUT_SPLIT)]
+        candidates = _fetch_exercise_candidates(focus, equipment)
+        if not candidates:
+            # Sin ejercicios para ese grupo: cae al catálogo general (solo equipo) para
+            # no dejar el día vacío ni tumbar el plan completo.
+            candidates = _fetch_exercise_candidates(None, equipment)
+        if not candidates:
+            raise HTTPException(status_code=404, detail="No hay ejercicios que coincidan con el filtro.")
+        items = _build_single_workout_day(ai, goal, candidates, focus=focus)
+        days.append({"day": day, "items": items})
+    return {"days": days}
 
 
 @app.post("/generate-workout-plan")
@@ -459,7 +533,12 @@ def _extract_intent(ai: AIConfig, message: str, history: Optional[list] = None) 
         '"equipment": ["lista de implementos mencionados en texto libre"], '
         '"has_cardio_equipment": bool, '
         '"goal": "weight_loss|muscle_gain|maintenance", "preferences": "string o null", '
+        '"num_days": int, '
         '"needs_clarification": bool, "clarifying_question": "string o null"}\n'
+        "num_days = cuántos días cubre el plan pedido: \"semana\"/\"plan semanal\"/"
+        "\"rutina de la semana\"=7, \"2 semanas\"=14, \"3 semanas\"=21; si el usuario da un "
+        "número explícito de días úsalo; si no especifica duración, num_days=1. "
+        "Tope máximo 28.\n"
         "Actúa como un nutricionista/entrenador real: si falta un dato clave para "
         "generar bien, marca needs_clarification=true y escribe en clarifying_question "
         "una única pregunta breve en español. Reglas de ambigüedad:\n"
@@ -516,6 +595,12 @@ def chat_plan(req: ChatPlanRequest):
             workout=None,
             meal_plan=None,
         )
+    # Cuántos días cubre el plan (T18.4.1). Default 1 = comportamiento previo.
+    num_days = intent.get("num_days") or 1
+    try:
+        num_days = max(1, min(int(num_days), MAX_PLAN_DAYS))
+    except (TypeError, ValueError):
+        num_days = 1
     workout = meal_plan = None
     if intent.get("wants_workout"):
         equipment_mentioned = [e.lower() for e in intent.get("equipment", [])]
@@ -523,7 +608,7 @@ def chat_plan(req: ChatPlanRequest):
             "kettlebell" in e or "pesa rusa" in e for e in equipment_mentioned
         ) else None
         try:
-            workout = _build_workout_plan(req.ai, intent.get("goal"), None, equipment_real)
+            workout = _build_workout_plan(req.ai, intent.get("goal"), None, equipment_real, num_days)
         except HTTPException as exc:
             if exc.status_code != 404:
                 raise
@@ -531,21 +616,32 @@ def chat_plan(req: ChatPlanRequest):
             # todo el endpoint (el usuario puede seguir queriendo su meal_plan).
             workout = {"items": []}
         if intent.get("has_cardio_equipment"):
-            workout["cardio_block"] = _build_cardio_block(req.ai, intent.get("equipment", []), intent.get("goal"))
+            # El bloque de cardio se cuelga del plan; en multi-día va en cada día.
+            cardio = _build_cardio_block(req.ai, intent.get("equipment", []), intent.get("goal"))
+            if "days" in workout:
+                for d in workout["days"]:
+                    d["cardio_block"] = cardio
+            else:
+                workout["cardio_block"] = cardio
     if intent.get("wants_meal_plan"):
         # Sin profile (chat suelto), usamos el objetivo detectado en el mensaje como meta
         # mínima: un dict de goals vacío hace que el LLM rechace la petición (probado con
         # gemma4:e4b), y aquí no hay perfil real del que sacar target_calories/macros.
         goals = (req.profile or {}).get("goals") or {"objetivo": intent.get("goal") or "maintenance"}
-        meal_plan = _build_meal_plan(req.ai, goals, intent.get("preferences"))
+        meal_plan = _build_meal_plan(req.ai, goals, intent.get("preferences"), num_days)
     # Reply determinista: nunca se le pide al LLM que "resuma qué hizo", porque
     # eso lo lleva a alucinar acciones (p. ej. afirmar que guardó una rutina)
     # que el backend nunca ejecutó. Ver SF13.1/T13.2.2.
+    multi = f" (plan de {num_days} días)" if num_days > 1 else ""
     reply_parts = []
     if workout is not None:
-        reply_parts.append("Aquí tienes tu rutina sugerida. Usa el botón 'Guardar rutina' si quieres conservarla.")
+        reply_parts.append(
+            f"Aquí tienes tu rutina sugerida{multi}. Usa el botón 'Guardar rutina' si quieres conservarla."
+        )
     if meal_plan is not None:
-        reply_parts.append("Y tu plan de comidas para hoy.")
+        reply_parts.append(
+            f"Y tu plan de comidas{multi}." if num_days > 1 else "Y tu plan de comidas para hoy."
+        )
     if not reply_parts:
         reply_parts.append("No detecté que quisieras una rutina o un plan de comidas — cuéntame con más detalle qué necesitas.")
     reply = " ".join(reply_parts)
