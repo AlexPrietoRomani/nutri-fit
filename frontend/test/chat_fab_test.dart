@@ -223,4 +223,133 @@ void main() {
 
     expect(find.text('Plan guardado — ya aparece en Nutrición'), findsOneWidget);
   });
+
+  testWidgets(
+      'Plan multi-día: muestra el selector de día y al cambiar de día muestra contenido distinto',
+      (tester) async {
+    final mock = MockClient((req) async => http.Response(
+          jsonEncode({
+            'reply': 'Plan de 2 días',
+            'workout': null,
+            'meal_plan': {
+              'days': [
+                {
+                  'day': 1,
+                  'meals': [
+                    {'meal_type': 'breakfast', 'food_name': 'Avena', 'calories': 300, 'protein_g': 10, 'carbs_g': 40, 'fat_g': 5}
+                  ],
+                },
+                {
+                  'day': 2,
+                  'meals': [
+                    {'meal_type': 'breakfast', 'food_name': 'Huevos', 'calories': 250, 'protein_g': 20, 'carbs_g': 2, 'fat_g': 18}
+                  ],
+                },
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ));
+    final ai = AiProvider(httpClient: mock, config: AIConfig(provider: 'openai', model: 'm'));
+    await ai.sendMessage('plan 2 días');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChangeNotifierProvider<AiProvider>.value(
+          value: ai,
+          child: const Scaffold(body: ChatScreen(embedded: true)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Selector presente y día 1 visible.
+    expect(find.byKey(const Key('day_selector')), findsOneWidget);
+    expect(find.text('Avena'), findsOneWidget);
+    expect(find.text('Huevos'), findsNothing);
+
+    // Cambia al día 2.
+    await tester.tap(find.byKey(const Key('day_selector')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Día 2').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Huevos'), findsOneWidget);
+    expect(find.text('Avena'), findsNothing);
+  });
+
+  testWidgets('Plan de 1 día (shape viejo) se renderiza SIN selector', (tester) async {
+    final mock = MockClient((req) async => http.Response(
+          jsonEncode({
+            'reply': 'Plan simple',
+            'workout': null,
+            'meal_plan': {
+              'meals': [
+                {'meal_type': 'breakfast', 'food_name': 'Avena', 'calories': 300, 'protein_g': 10, 'carbs_g': 40, 'fat_g': 5}
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ));
+    final ai = AiProvider(httpClient: mock, config: AIConfig(provider: 'openai', model: 'm'));
+    await ai.sendMessage('plan');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChangeNotifierProvider<AiProvider>.value(
+          value: ai,
+          child: const Scaffold(body: ChatScreen(embedded: true)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('day_selector')), findsNothing);
+    expect(find.text('Avena'), findsOneWidget);
+  });
+
+  testWidgets('Guardar plan multi-día: el objeto guardado conserva days', (tester) async {
+    final mock = MockClient((req) async => http.Response(
+          jsonEncode({
+            'reply': 'Plan de 2 días',
+            'workout': null,
+            'meal_plan': {
+              'days': [
+                {'day': 1, 'meals': [{'meal_type': 'breakfast', 'food_name': 'Avena', 'calories': 300}]},
+                {'day': 2, 'meals': [{'meal_type': 'breakfast', 'food_name': 'Huevos', 'calories': 250}]},
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ));
+    final ai = AiProvider(httpClient: mock, config: AIConfig(provider: 'openai', model: 'm'));
+    await ai.sendMessage('plan 2 días');
+
+    Map<String, dynamic>? captured;
+    Future<void> fakeSave(String name, Map<String, dynamic> mealPlan) async => captured = mealPlan;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChangeNotifierProvider<AiProvider>.value(
+          value: ai,
+          child: Scaffold(body: ChatScreen(embedded: true, saveMealPlanOverride: fakeSave)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('save_meal_plan_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save_meal_plan_confirm_button')));
+    await tester.pumpAndSettle();
+
+    expect(captured, isNotNull);
+    expect(captured!['days'], isA<List>());
+    expect((captured!['days'] as List).length, 2);
+    // El valor de columna (planColumnValue) conserva days para round-trip.
+    expect(planColumnValue(captured!, 'meals'), {'days': captured!['days']});
+  });
 }

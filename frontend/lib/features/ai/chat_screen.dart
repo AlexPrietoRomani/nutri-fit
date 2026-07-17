@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase_config.dart';
 import 'ai_provider.dart';
 import 'ai_settings_screen.dart';
+import '../nutrition/nutrition_provider.dart';
 
 /// Pantalla de chat con el asistente de IA.
 class ChatScreen extends StatefulWidget {
@@ -29,10 +30,26 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _inputCtrl = TextEditingController();
 
+  // Preferencias del usuario (nutrition.food_preferences) para inyectarlas al
+  // chat y que el generador de comidas las respete (T18.2.2). Se cargan una vez
+  // de forma best-effort: si no hay NutritionProvider en el árbol (tests) o
+  // falla la carga, quedan null y el body del request simplemente no las lleva.
+  Map<String, dynamic>? _preferences;
+
   @override
   void initState() {
     super.initState();
     Future.microtask(() => context.read<AiProvider>().loadConfig());
+    Future.microtask(_loadPreferences);
+  }
+
+  Future<void> _loadPreferences() async {
+    try {
+      final prefs = await context.read<NutritionProvider>().fetchPreferences();
+      if (mounted) setState(() => _preferences = prefs);
+    } catch (_) {
+      // best-effort: sin provider o sin fila, el chat sigue igual que antes.
+    }
   }
 
   @override
@@ -45,7 +62,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = preset ?? _inputCtrl.text.trim();
     if (text.isEmpty) return;
     _inputCtrl.clear();
-    context.read<AiProvider>().sendMessage(text);
+    context.read<AiProvider>().sendMessage(text, preferences: _preferences);
   }
 
   void _openSettings() {
@@ -240,7 +257,9 @@ class _ChatScreenState extends State<ChatScreen> {
           'user_id': userId,
           'name': name,
           'source': 'ai',
-          'items': workout['items'],
+          // Multi-día: guarda {days:[...]} en la columna JSONB para round-trip;
+          // plano: la lista tal cual (ver planColumnValue).
+          'items': planColumnValue(workout, 'items'),
           'cardio_block': workout['cardio_block'],
         });
       }
@@ -257,8 +276,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildWorkoutCard(Map<String, dynamic> workout) {
-    final items = (workout['items'] as List?) ?? [];
-    final cardioBlock = workout['cardio_block']?.toString();
+    final days = normalizePlanDays(workout, 'items');
     return Card(
       color: const Color(0xFF1E201E),
       margin: const EdgeInsets.only(top: 4, bottom: 8),
@@ -276,29 +294,10 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Text('Rutina sugerida',
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
             ),
-            for (final item in items)
-              ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                title: Text(
-                    (item as Map)['name']?.toString() ?? 'Ejercicio #${item['exercise_id']}',
-                    style: const TextStyle(color: Colors.white, fontSize: 13)),
-                trailing: Text('${item['sets']}x${item['reps']} · RPE ${item['rpe']}',
-                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
-              ),
-            if (cardioBlock != null && cardioBlock.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                child: Row(
-                  children: [
-                    const Icon(Icons.directions_run_rounded, color: Color(0xFF2ED573), size: 16),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(cardioBlock, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                    ),
-                  ],
-                ),
-              ),
+            _MultiDayPlan(
+              days: days,
+              dayBuilder: (day) => _workoutDayContent(day, workout),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 0, 16, 0),
               child: Align(
@@ -314,6 +313,41 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Contenido de un día de la rutina: ejercicios + bloque de cardio.
+  /// El cardio puede venir por día (multi-día) o a nivel raíz (shape viejo).
+  Widget _workoutDayContent(Map<String, dynamic> day, Map<String, dynamic> workout) {
+    final items = (day['items'] as List?) ?? [];
+    final cardioBlock = (day['cardio_block'] ?? workout['cardio_block'])?.toString();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final item in items)
+          ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: Text(
+                (item as Map)['name']?.toString() ?? 'Ejercicio #${item['exercise_id']}',
+                style: const TextStyle(color: Colors.white, fontSize: 13)),
+            trailing: Text('${item['sets']}x${item['reps']} · RPE ${item['rpe']}',
+                style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          ),
+        if (cardioBlock != null && cardioBlock.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: Row(
+              children: [
+                const Icon(Icons.directions_run_rounded, color: Color(0xFF2ED573), size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(cardioBlock, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
@@ -353,7 +387,7 @@ class _ChatScreenState extends State<ChatScreen> {
           'user_id': userId,
           'name': name,
           'source': 'ai',
-          'meals': mealPlan['meals'],
+          'meals': planColumnValue(mealPlan, 'meals'),
         });
       }
       if (!mounted) return;
@@ -369,7 +403,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildMealPlanCard(Map<String, dynamic> mealPlan) {
-    final meals = (mealPlan['meals'] as List?) ?? [];
+    final days = normalizePlanDays(mealPlan, 'meals');
     return Card(
       color: const Color(0xFF1E201E),
       margin: const EdgeInsets.only(top: 4, bottom: 8),
@@ -399,20 +433,81 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
-            for (final meal in meals)
-              ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                title: Text('${(meal as Map)['food_name']}',
-                    style: const TextStyle(color: Colors.white, fontSize: 13)),
-                subtitle: Text(
-                  '${meal['meal_type']} · ${meal['calories']} kcal · P${meal['protein_g']} C${meal['carbs_g']} G${meal['fat_g']}',
-                  style: const TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-              ),
+            _MultiDayPlan(
+              days: days,
+              dayBuilder: (day) => _mealDayContent(day),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _mealDayContent(Map<String, dynamic> day) {
+    final meals = (day['meals'] as List?) ?? [];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final meal in meals)
+          ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: Text('${(meal as Map)['food_name']}',
+                style: const TextStyle(color: Colors.white, fontSize: 13)),
+            subtitle: Text(
+              '${meal['meal_type']} · ${meal['calories']} kcal · P${meal['protein_g']} C${meal['carbs_g']} G${meal['fat_g']}',
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Renderiza un plan multi-día con un selector de día encima (dropdown) cuando
+/// hay más de un día; con un solo día muestra el contenido directo, sin selector
+/// (compat: los planes viejos de 1 día se ven idénticos). [days] viene de
+/// [normalizePlanDays]; [dayBuilder] pinta el contenido del día elegido.
+class _MultiDayPlan extends StatefulWidget {
+  const _MultiDayPlan({required this.days, required this.dayBuilder});
+
+  final List<Map<String, dynamic>> days;
+  final Widget Function(Map<String, dynamic> day) dayBuilder;
+
+  @override
+  State<_MultiDayPlan> createState() => _MultiDayPlanState();
+}
+
+class _MultiDayPlanState extends State<_MultiDayPlan> {
+  int _idx = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final days = widget.days;
+    if (_idx >= days.length) _idx = 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (days.length > 1)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+            child: DropdownButton<int>(
+              key: const Key('day_selector'),
+              value: _idx,
+              dropdownColor: const Color(0xFF1E201E),
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              isDense: true,
+              items: [
+                for (int i = 0; i < days.length; i++)
+                  DropdownMenuItem(value: i, child: Text('Día ${days[i]['day'] ?? i + 1}')),
+              ],
+              onChanged: (v) {
+                if (v != null) setState(() => _idx = v);
+              },
+            ),
+          ),
+        widget.dayBuilder(days[_idx]),
+      ],
     );
   }
 }

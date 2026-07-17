@@ -326,12 +326,84 @@ class MealPlanRequest(BaseModel):
     ai: AIConfig
 
 
-def _build_meal_plan(ai: AIConfig, goals: dict, preferences: Optional[str]) -> dict:
-    """Genera un plan de comidas en JSON coherente con las metas del usuario."""
+MAX_PLAN_DAYS = 28  # Tope de días para no explotar tokens en planes multi-día.
+
+
+def _format_preferences(prefs: Optional[dict]) -> str:
+    """Convierte el dict de `nutrition.food_preferences` en instrucciones claras
+    para el prompt del generador de comidas.
+
+    Las alergias se marcan como restricción DURA (nunca incluir). El resto son
+    preferencias blandas. Devuelve "" si no hay preferencias relevantes, para no
+    ensuciar el prompt cuando el usuario no configuró nada.
+    """
+    if not prefs:
+        return ""
+    partes: list = []
+    allergies = [str(x) for x in (prefs.get("allergies") or []) if x]
+    if allergies:
+        partes.append(
+            f"El usuario es ALÉRGICO a: {', '.join(allergies)} "
+            "(NUNCA los incluyas, es una restricción DURA)."
+        )
+    dislikes = [str(x) for x in (prefs.get("dislikes") or []) if x]
+    if dislikes:
+        partes.append(f"No le gustan: {', '.join(dislikes)}.")
+    avoid = [str(x) for x in (prefs.get("avoid") or []) if x]
+    if avoid:
+        partes.append(f"Evita (no alérgico): {', '.join(avoid)}.")
+    rarely = [str(x) for x in (prefs.get("rarely") or []) if x]
+    if rarely:
+        partes.append(f"Incluir muy poco: {', '.join(rarely)}.")
+    constraints = prefs.get("constraints") or {}
+    restr: list = []
+    if constraints.get("no_fridge"):
+        restr.append("no tiene refrigerador")
+    missing = [str(x) for x in (constraints.get("missing_utensils") or []) if x]
+    if missing:
+        restr.append(f"le faltan estos utensilios: {', '.join(missing)}")
+    if restr:
+        partes.append(f"Restricciones: {'; '.join(restr)}.")
+    return " ".join(partes)
+
+
+def _build_single_meal_day(
+    ai: AIConfig,
+    goals: dict,
+    preferences: Optional[str],
+    avoid: Optional[list] = None,
+    preferences_block: str = "",
+) -> list:
+    """Genera las comidas (lista `meals`) de UN día coherente con las metas.
+
+    `avoid` es una lista de food_names ya usados en días previos: se instruye al
+    modelo a no repetirlos para forzar variedad entre días de un plan semanal.
+    `preferences_block` es el texto ya formateado por `_format_preferences`; se
+    antepone con énfasis en que las alergias son restricciones DURAS.
+    """
+    variar = (
+        f"\nNO repitas estos platos ya usados en días previos: {json.dumps(avoid, ensure_ascii=False)}. "
+        "Propón comidas DISTINTAS."
+        if avoid else ""
+    )
+    bloque_prefs = (
+        f"RESTRICCIONES Y PREFERENCIAS DEL USUARIO (respétalas SIEMPRE; las "
+        f"alergias son restricciones DURAS y nunca se incluyen): {preferences_block}\n"
+        if preferences_block else ""
+    )
+    # Si hay restricciones logísticas (sin refri/utensilios faltantes), pide una
+    # ALTERNATIVA accesible en lugar de omitir el ingrediente que choca.
+    if "Restricciones:" in preferences_block:
+        bloque_prefs += (
+            "Si una receta requiere algo que el usuario no tiene (p. ej. "
+            "refrigeración sin refri, o un utensilio faltante), NO la omitas: "
+            "propón una versión o ingrediente alternativo accesible que no lo "
+            "necesite.\n"
+        )
     prompt = (
-        f"{FITNESS_SYSTEM}\nGenera un plan de comidas para UN día que cumpla estas metas: "
+        f"{FITNESS_SYSTEM}\n{bloque_prefs}Genera un plan de comidas para UN día que cumpla estas metas: "
         f"{json.dumps(goals, ensure_ascii=False)}. "
-        f"Preferencias: {preferences or 'ninguna'}.\n"
+        f"Preferencias: {preferences or 'ninguna'}.{variar}\n"
         "Devuelve SOLO un objeto JSON con esta forma exacta:\n"
         '{"meals": [{"meal_type": "breakfast|lunch|dinner|snack", "food_name": "str", '
         '"calories": num, "protein_g": num, "carbs_g": num, "fat_g": num, "serving_size_g": num}]}'
@@ -339,7 +411,36 @@ def _build_meal_plan(ai: AIConfig, goals: dict, preferences: Optional[str]) -> d
     data = _parse_json_or_502(_run_ai(ai, prompt, want_json=True))
     if not isinstance(data.get("meals"), list) or not data["meals"]:
         raise HTTPException(status_code=502, detail="El plan de comidas no contiene 'meals'.")
-    return data
+    return data["meals"]
+
+
+def _build_meal_plan(
+    ai: AIConfig,
+    goals: dict,
+    preferences: Optional[str],
+    num_days: int = 1,
+    preferences_block: str = "",
+) -> dict:
+    """Genera un plan de comidas coherente con las metas del usuario.
+
+    Con `num_days<=1` devuelve el shape plano `{"meals": [...]}` (compatibilidad
+    hacia atrás). Con `num_days>1` devuelve `{"days": [{"day": n, "meals": [...]}]}`
+    variando los platos entre días para que un plan semanal no repita el mismo menú.
+    `preferences_block` es el texto de `_format_preferences` (alergias/dislikes/…)
+    que se antepone al prompt; se combina con el string libre `preferences`.
+    """
+    if num_days <= 1:
+        return {"meals": _build_single_meal_day(ai, goals, preferences, preferences_block=preferences_block)}
+    num_days = min(num_days, MAX_PLAN_DAYS)
+    days: list = []
+    used_names: list = []
+    for day in range(1, num_days + 1):
+        meals = _build_single_meal_day(
+            ai, goals, preferences, avoid=used_names[-20:], preferences_block=preferences_block
+        )
+        used_names.extend(m.get("food_name") for m in meals if m.get("food_name"))
+        days.append({"day": day, "meals": meals})
+    return {"days": days}
 
 
 @app.post("/generate-meal-plan")
@@ -378,15 +479,22 @@ class WorkoutPlanRequest(BaseModel):
     ai: AIConfig
 
 
-def _build_workout_plan(ai: AIConfig, goal: Optional[str], body_part: Optional[str], equipment: Optional[str]) -> dict:
-    """Genera una rutina eligiendo SOLO ejercicios reales del catálogo."""
-    candidates = _fetch_exercise_candidates(body_part, equipment)
-    if not candidates:
-        raise HTTPException(status_code=404, detail="No hay ejercicios que coincidan con el filtro.")
+# Rotación de grupos musculares para planes multi-día (split tipo push/pull/legs
+# ampliado). Cada valor es un patrón ILIKE contra training.exercises.body_part.
+WORKOUT_SPLIT = ["chest", "back", "legs", "shoulders", "arms", "core", "full_body"]
+
+
+def _build_single_workout_day(ai: AIConfig, goal: Optional[str], candidates: List[dict], focus: Optional[str] = None) -> list:
+    """Genera los `items` de UN día eligiendo SOLO ejercicios reales del catálogo.
+
+    Mantiene el filtro anti-alucinación: descarta cualquier exercise_id que no
+    esté en `candidates` (los ejercicios reales consultados a la BD).
+    """
     valid_ids = {c["id"] for c in candidates}
     catalogo = json.dumps(candidates, ensure_ascii=False)
+    enfoque = f" enfocada en {focus}" if focus else ""
     prompt = (
-        f"{FITNESS_SYSTEM}\nArma una rutina para el objetivo: {goal or 'general'}.\n"
+        f"{FITNESS_SYSTEM}\nArma una rutina{enfoque} para el objetivo: {goal or 'general'}.\n"
         f"Elige ejercicios SOLO de este catálogo (usa exactamente sus id): {catalogo}\n"
         "Devuelve SOLO un objeto JSON con esta forma:\n"
         '{"items": [{"exercise_id": int, "sets": int, "reps": int, "rpe": num}]}'
@@ -397,12 +505,48 @@ def _build_workout_plan(ai: AIConfig, goal: Optional[str], body_part: Optional[s
         raise HTTPException(status_code=502, detail="La rutina no contiene 'items'.")
     # Descartar ejercicios alucinados (id fuera del catálogo consultado)
     names_by_id = {c["id"]: c["name"] for c in candidates}
-    filtered = [
+    return [
         {**it, "name": names_by_id[it["exercise_id"]]}
         for it in items
         if it.get("exercise_id") in valid_ids
     ]
-    return {"items": filtered}
+
+
+def _build_workout_plan(
+    ai: AIConfig,
+    goal: Optional[str],
+    body_part: Optional[str],
+    equipment: Optional[str],
+    num_days: int = 1,
+) -> dict:
+    """Genera una rutina eligiendo SOLO ejercicios reales del catálogo.
+
+    Con `num_days<=1` devuelve el shape plano `{"items": [...]}` (compatibilidad
+    hacia atrás). Con `num_days>1` devuelve `{"days": [{"day": n, "items": [...]}]}`
+    rotando el grupo muscular por día para que la semana no entrene siempre lo mismo.
+    """
+    if num_days <= 1:
+        candidates = _fetch_exercise_candidates(body_part, equipment)
+        if not candidates:
+            raise HTTPException(status_code=404, detail="No hay ejercicios que coincidan con el filtro.")
+        return {"items": _build_single_workout_day(ai, goal, candidates)}
+
+    num_days = min(num_days, MAX_PLAN_DAYS)
+    days: list = []
+    for day in range(1, num_days + 1):
+        # Rota el foco muscular; si el usuario fijó body_part, ese manda para el día 1
+        # y a partir de ahí se rota igual para asegurar variedad.
+        focus = body_part or WORKOUT_SPLIT[(day - 1) % len(WORKOUT_SPLIT)]
+        candidates = _fetch_exercise_candidates(focus, equipment)
+        if not candidates:
+            # Sin ejercicios para ese grupo: cae al catálogo general (solo equipo) para
+            # no dejar el día vacío ni tumbar el plan completo.
+            candidates = _fetch_exercise_candidates(None, equipment)
+        if not candidates:
+            raise HTTPException(status_code=404, detail="No hay ejercicios que coincidan con el filtro.")
+        items = _build_single_workout_day(ai, goal, candidates, focus=focus)
+        days.append({"day": day, "items": items})
+    return {"days": days}
 
 
 @app.post("/generate-workout-plan")
@@ -413,6 +557,13 @@ def generate_workout_plan(req: WorkoutPlanRequest):
 class ChatPlanRequest(BaseModel):
     message: str
     profile: Optional[dict] = None
+    # Historial de la conversación (el servidor es stateless: el historial viaja
+    # por request). Cada item: {"role": "user"|"assistant", "text": str}.
+    history: Optional[list] = None
+    # Preferencias/restricciones del usuario (fila de nutrition.food_preferences:
+    # allergies/dislikes/avoid/rarely/constraints). Se inyectan al prompt del
+    # generador de comidas vía _format_preferences (T18.2.2).
+    preferences: Optional[dict] = None
     ai: AIConfig
 
 
@@ -420,17 +571,61 @@ class ChatPlanResponse(BaseModel):
     reply: str
     workout: Optional[dict] = None
     meal_plan: Optional[dict] = None
+    # True cuando la petición es ambigua y el reply es una pregunta de clarificación
+    # en vez de un plan generado (T18.3.1).
+    needs_clarification: bool = False
 
 
-def _extract_intent(ai: AIConfig, message: str) -> dict:
-    """Usa el LLM para clasificar qué quiere el usuario (rutina/plan de comidas/equipo)."""
+def _extract_intent(ai: AIConfig, message: str, history: Optional[list] = None) -> dict:
+    """Usa el LLM para clasificar qué quiere el usuario (rutina/plan de comidas/equipo).
+
+    Si se pasa historial, se antepone al prompt como contexto de la conversación
+    para que el LLM resuelva referencias ("hazlo a 3 semanas") respecto al último
+    plan mencionado, en vez de interpretar el mensaje aislado (bug T18.1.1).
+    """
+    context = ""
+    if history:
+        # Solo los últimos ~10 turnos: suficiente para resolver la referencia y
+        # acota el prompt para no dispararse en conversaciones largas.
+        turnos = []
+        for item in history[-10:]:
+            rol = "usuario" if item.get("role") == "user" else "asistente"
+            turnos.append(f"{rol}: {item.get('text', '')}")
+        context = (
+            "Contexto de la conversación (turnos previos):\n"
+            + "\n".join(turnos)
+            + "\n\nResuelve referencias del mensaje respecto a este contexto: si el "
+            "mensaje alude a un plan previo (p. ej. \"hazlo a 3 semanas\") clasifícalo "
+            "según el último plan mencionado (si el turno previo fue de comida, "
+            "\"3 semanas\" implica wants_meal_plan; si fue de rutina, wants_workout).\n\n"
+        )
     prompt = (
+        f"{context}"
         f"Analiza este mensaje de un usuario de una app de fitness: \"{message}\"\n"
         "Devuelve SOLO un JSON con esta forma exacta:\n"
         '{"wants_workout": bool, "wants_meal_plan": bool, '
         '"equipment": ["lista de implementos mencionados en texto libre"], '
         '"has_cardio_equipment": bool, '
-        '"goal": "weight_loss|muscle_gain|maintenance", "preferences": "string o null"}'
+        '"goal": "weight_loss|muscle_gain|maintenance", "preferences": "string o null", '
+        '"num_days": int, '
+        '"wants_alternative": bool, "alternative_target": "string o null", '
+        '"needs_clarification": bool, "clarifying_question": "string o null"}\n'
+        "wants_alternative=true cuando el usuario pide un SUSTITUTO de un "
+        "ingrediente/comida/ejercicio concreto en vez de un plan nuevo "
+        "(p. ej. \"dame otra opción a X\", \"no consigo X\", \"con qué reemplazo X\"); "
+        "alternative_target = ese X (el ingrediente/comida/ejercicio), o null.\n"
+        "num_days = cuántos días cubre el plan pedido: \"semana\"/\"plan semanal\"/"
+        "\"rutina de la semana\"=7, \"2 semanas\"=14, \"3 semanas\"=21; si el usuario da un "
+        "número explícito de días úsalo; si no especifica duración, num_days=1. "
+        "Tope máximo 28.\n"
+        "Actúa como un nutricionista/entrenador real: si falta un dato clave para "
+        "generar bien, marca needs_clarification=true y escribe en clarifying_question "
+        "una única pregunta breve en español. Reglas de ambigüedad:\n"
+        "- Quiere rutina pero no dijo qué EQUIPO/lugar tiene (casa/gym/sin equipo).\n"
+        "- Quiere plan de comida pero no hay meta/objetivo NI perfil ni preferencias claras.\n"
+        "- Petición demasiado vaga (\"ayúdame\", \"hazme algo\").\n"
+        "Usa el HISTORIAL: si en turnos previos el usuario YA dio el equipo o el "
+        "objetivo, NO vuelvas a preguntar (needs_clarification=false)."
     )
     return _parse_json_or_502(_run_ai(ai, prompt, want_json=True))
 
@@ -464,10 +659,70 @@ def analyze_progress(req: ProgressRequest):
     return {"analysis": _run_ai(req.ai, prompt)}
 
 
+def _build_alternative_reply(
+    ai: AIConfig,
+    target: Optional[str],
+    history: Optional[list] = None,
+    preferences: Optional[dict] = None,
+) -> str:
+    """Genera texto libre con 2-3 sustitutos accesibles para `target`.
+
+    Usa el historial (para que la alternativa sea coherente con el plan previo) y
+    las preferencias/restricciones del usuario. No devuelve un plan estructurado.
+    """
+    context = ""
+    if history:
+        turnos = [
+            f"{'usuario' if item.get('role') == 'user' else 'asistente'}: {item.get('text', '')}"
+            for item in history[-10:]
+        ]
+        context = "Contexto de la conversación (turnos previos):\n" + "\n".join(turnos) + "\n\n"
+    prefs_block = _format_preferences(preferences)
+    prefs = f"Preferencias y restricciones del usuario: {prefs_block}\n" if prefs_block else ""
+    prompt = (
+        f"{FITNESS_SYSTEM}\n{context}{prefs}"
+        f"El usuario no consigue o quiere reemplazar: \"{target or 'un ingrediente del plan'}\". "
+        "Sugiere 2-3 sustitutos accesibles y coherentes con lo mencionado en el "
+        "contexto y sus preferencias. Responde en español, en texto breve; NO "
+        "devuelvas JSON ni un plan estructurado."
+    )
+    return _run_ai(ai, prompt)
+
+
 @app.post("/chat-plan", response_model=ChatPlanResponse)
 def chat_plan(req: ChatPlanRequest):
     """Orquestador: interpreta un mensaje libre y arma rutina y/o plan de comidas."""
-    intent = _extract_intent(req.ai, req.message)
+    intent = _extract_intent(req.ai, req.message, req.history)
+    # Petición ambigua: repreguntar como haría un entrenador real, sin generar a
+    # medias. El historial ya viaja, así que la respuesta del usuario llega en el
+    # siguiente turno y ahí el LLM baja needs_clarification (T18.3.1).
+    if intent.get("needs_clarification"):
+        return ChatPlanResponse(
+            reply=intent.get("clarifying_question")
+            or "¿Podrías darme más detalle? Dime qué equipo/lugar tienes (casa, gym o sin equipo) y tu objetivo.",
+            needs_clarification=True,
+            workout=None,
+            meal_plan=None,
+        )
+    # Petición de alternativa ("no consigo quinua, dame otra opción"): responde con
+    # texto libre (2-3 sustitutos coherentes con el historial), no con un plan
+    # estructurado. Cede la prioridad si el usuario en realidad pide un plan completo.
+    if intent.get("wants_alternative") and not (
+        intent.get("wants_workout") or intent.get("wants_meal_plan")
+    ):
+        return ChatPlanResponse(
+            reply=_build_alternative_reply(
+                req.ai, intent.get("alternative_target"), req.history, req.preferences
+            ),
+            workout=None,
+            meal_plan=None,
+        )
+    # Cuántos días cubre el plan (T18.4.1). Default 1 = comportamiento previo.
+    num_days = intent.get("num_days") or 1
+    try:
+        num_days = max(1, min(int(num_days), MAX_PLAN_DAYS))
+    except (TypeError, ValueError):
+        num_days = 1
     workout = meal_plan = None
     if intent.get("wants_workout"):
         equipment_mentioned = [e.lower() for e in intent.get("equipment", [])]
@@ -475,7 +730,7 @@ def chat_plan(req: ChatPlanRequest):
             "kettlebell" in e or "pesa rusa" in e for e in equipment_mentioned
         ) else None
         try:
-            workout = _build_workout_plan(req.ai, intent.get("goal"), None, equipment_real)
+            workout = _build_workout_plan(req.ai, intent.get("goal"), None, equipment_real, num_days)
         except HTTPException as exc:
             if exc.status_code != 404:
                 raise
@@ -483,21 +738,35 @@ def chat_plan(req: ChatPlanRequest):
             # todo el endpoint (el usuario puede seguir queriendo su meal_plan).
             workout = {"items": []}
         if intent.get("has_cardio_equipment"):
-            workout["cardio_block"] = _build_cardio_block(req.ai, intent.get("equipment", []), intent.get("goal"))
+            # El bloque de cardio se cuelga del plan; en multi-día va en cada día.
+            cardio = _build_cardio_block(req.ai, intent.get("equipment", []), intent.get("goal"))
+            if "days" in workout:
+                for d in workout["days"]:
+                    d["cardio_block"] = cardio
+            else:
+                workout["cardio_block"] = cardio
     if intent.get("wants_meal_plan"):
         # Sin profile (chat suelto), usamos el objetivo detectado en el mensaje como meta
         # mínima: un dict de goals vacío hace que el LLM rechace la petición (probado con
         # gemma4:e4b), y aquí no hay perfil real del que sacar target_calories/macros.
         goals = (req.profile or {}).get("goals") or {"objetivo": intent.get("goal") or "maintenance"}
-        meal_plan = _build_meal_plan(req.ai, goals, intent.get("preferences"))
+        meal_plan = _build_meal_plan(
+            req.ai, goals, intent.get("preferences"), num_days,
+            preferences_block=_format_preferences(req.preferences),
+        )
     # Reply determinista: nunca se le pide al LLM que "resuma qué hizo", porque
     # eso lo lleva a alucinar acciones (p. ej. afirmar que guardó una rutina)
     # que el backend nunca ejecutó. Ver SF13.1/T13.2.2.
+    multi = f" (plan de {num_days} días)" if num_days > 1 else ""
     reply_parts = []
     if workout is not None:
-        reply_parts.append("Aquí tienes tu rutina sugerida. Usa el botón 'Guardar rutina' si quieres conservarla.")
+        reply_parts.append(
+            f"Aquí tienes tu rutina sugerida{multi}. Usa el botón 'Guardar rutina' si quieres conservarla."
+        )
     if meal_plan is not None:
-        reply_parts.append("Y tu plan de comidas para hoy.")
+        reply_parts.append(
+            f"Y tu plan de comidas{multi}." if num_days > 1 else "Y tu plan de comidas para hoy."
+        )
     if not reply_parts:
         reply_parts.append("No detecté que quisieras una rutina o un plan de comidas — cuéntame con más detalle qué necesitas.")
     reply = " ".join(reply_parts)

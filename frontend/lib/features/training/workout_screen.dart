@@ -137,9 +137,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   void _startSavedRoutine(Map<String, dynamic> routine) async {
     final provider = context.read<TrainingProvider>();
+    // ponytail: arranca el día 1 de la rutina; navegación de día dentro de la
+    // sesión activa queda fuera de alcance de T18.4.2 (un día por defecto basta).
+    final days = normalizePlanDays(planFromRow(routine, 'items'), 'items');
     await provider.startWorkoutSessionFromRoutine(
       routine['name'] as String,
-      routine['items'] as List<dynamic>,
+      (days.first['items'] as List?) ?? const [],
     );
 
     if (provider.activeSession != null) {
@@ -342,11 +345,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                       separatorBuilder: (context, index) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
                         final routine = provider.savedRoutines[index];
-                        final itemCount = (routine['items'] as List).length;
+                        // Soporta rutinas multi-día (T18.4.2): cuenta el día 1.
+                        final days = normalizePlanDays(planFromRow(routine, 'items'), 'items');
+                        final itemCount = (days.first['items'] as List?)?.length ?? 0;
                         final cardioBlock = routine['cardio_block'] as String?;
+                        final dayPrefix = days.length > 1 ? '${days.length} días · ' : '';
                         final subtitle = cardioBlock != null && cardioBlock.isNotEmpty
-                            ? '$itemCount ejercicios · $cardioBlock'
-                            : '$itemCount ejercicios';
+                            ? '$dayPrefix$itemCount ejercicios · $cardioBlock'
+                            : '$dayPrefix$itemCount ejercicios';
                         return Card(
                           color: const Color(0xFF1E201E),
                           child: InkWell(

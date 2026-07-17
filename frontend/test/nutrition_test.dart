@@ -113,6 +113,63 @@ void main() {
     });
   });
 
+  group('NutritionProvider.fetchPreferences / savePreferences (T18.2.1)', () {
+    test('fetchPreferences devuelve la fila inyectada', () async {
+      final provider = NutritionProvider();
+      final row = {
+        'user_id': 'u-1',
+        'allergies': ['maní'],
+        'dislikes': ['cebolla'],
+        'avoid': [],
+        'rarely': ['azúcar'],
+        'constraints': {'no_fridge': true},
+      };
+
+      final result = await provider.fetchPreferences(fetchOverride: () async => row);
+
+      expect(result, row);
+    });
+
+    test('fetchPreferences devuelve null cuando no hay fila', () async {
+      final provider = NutritionProvider();
+
+      final result = await provider.fetchPreferences(fetchOverride: () async => null);
+
+      expect(result, isNull);
+    });
+
+    test('savePreferences arma el upsert con user_id inyectado', () async {
+      final provider = NutritionProvider();
+      Map<String, dynamic>? captured;
+
+      await provider.savePreferences(
+        {
+          'allergies': ['maní'],
+          'constraints': {'no_fridge': true},
+        },
+        userId: 'u-1',
+        saveOverride: (payload) async => captured = payload,
+      );
+
+      expect(captured, isNotNull);
+      expect(captured!['user_id'], 'u-1');
+      expect(captured!['allergies'], ['maní']);
+      expect(captured!['constraints'], {'no_fridge': true});
+    });
+
+    test('error en el override de save se refleja en errorMessage sin lanzar', () async {
+      final provider = NutritionProvider();
+
+      await provider.savePreferences(
+        {'allergies': []},
+        userId: 'u-1',
+        saveOverride: (_) async => throw Exception('boom'),
+      );
+
+      expect(provider.errorMessage, contains('boom'));
+    });
+  });
+
   group('NutritionProvider.searchFoodCatalog (T17.4.1)', () {
     test('con searchOverride devuelve la lista mockeada', () async {
       final provider = NutritionProvider();
@@ -150,6 +207,56 @@ void main() {
     });
   });
 
+  group('NutritionProvider.searchIngredients (T18.8.1/T18.5.1)', () {
+    test('con searchOverride devuelve la lista mockeada (macros + micros)', () async {
+      final provider = NutritionProvider();
+      final ingredients = [
+        {
+          'id': 1,
+          'name': 'Pechuga de pollo',
+          'category': 'proteina',
+          'unit': 'g',
+          'calories_per_100': 165,
+          'protein_per_100': 31.0,
+          'carbs_per_100': 0.0,
+          'fat_per_100': 3.6,
+          'iron_mg': 0.7,
+          'vitamin_c_mg': 0.0,
+        },
+      ];
+
+      final result = await provider.searchIngredients('pollo', searchOverride: (q) async {
+        expect(q, 'pollo');
+        return ingredients;
+      });
+
+      expect(result, ingredients);
+      expect(result.first['protein_per_100'], 31.0);
+      expect(result.first['iron_mg'], 0.7);
+    });
+
+    test('query vacía devuelve [] sin invocar el override', () async {
+      final provider = NutritionProvider();
+      var called = false;
+
+      final result = await provider.searchIngredients('  ', searchOverride: (q) async {
+        called = true;
+        return [{'name': 'x'}];
+      });
+
+      expect(result, isEmpty);
+      expect(called, isFalse);
+    });
+
+    test('error en el override devuelve [] sin lanzar', () async {
+      final provider = NutritionProvider();
+
+      final result = await provider.searchIngredients('pollo', searchOverride: (_) async => throw Exception('boom'));
+
+      expect(result, isEmpty);
+    });
+  });
+
   group('UserGoals serialización', () {
     test('fromJson mapea metas y macros', () {
       final goals = UserGoals.fromJson({
@@ -178,6 +285,135 @@ void main() {
         'goal_type': null,
       });
       expect(goals.goalType, 'maintenance');
+    });
+  });
+
+  group('macrosFromIngredients / dishMacros (T18.8.2)', () {
+    // Subconjunto del seed zzzz6_ingredients.sql:
+    // 1 pechuga pollo: 165 / 31.0 / 0.0 / 3.6 (por 100 g)
+    // 9 arroz blanco cocido: 130 / 2.7 / 28.0 / 0.3 (por 100 g)
+    final ingredientsById = {
+      1: {
+        'calories_per_100': 165,
+        'protein_per_100': 31.0,
+        'carbs_per_100': 0.0,
+        'fat_per_100': 3.6,
+      },
+      9: {
+        'calories_per_100': 130,
+        'protein_per_100': 2.7,
+        'carbs_per_100': 28.0,
+        'fat_per_100': 0.3,
+      },
+    };
+
+    test('caso conocido: 100 g pechuga + 300 g arroz', () {
+      // 100 g pechuga -> 165 / 31.0 / 0.0 / 3.6
+      // 300 g arroz  -> 390 / 8.1 / 84.0 / 0.9
+      // total        -> 555 / 39.1 / 84.0 / 4.5
+      final macros = macrosFromIngredients(
+        [
+          {'ingredient_id': 1, 'grams': 100},
+          {'ingredient_id': 9, 'grams': 300},
+        ],
+        ingredientsById,
+      );
+      expect(macros['calories'], closeTo(555.0, 1));
+      expect(macros['protein_g'], closeTo(39.1, 1));
+      expect(macros['carbs_g'], closeTo(84.0, 1));
+      expect(macros['fat_g'], closeTo(4.5, 1));
+    });
+
+    test('ignora ingredient_id ausente en el mapa', () {
+      final macros = macrosFromIngredients(
+        [
+          {'ingredient_id': 1, 'grams': 100},
+          {'ingredient_id': 999, 'grams': 500},
+        ],
+        ingredientsById,
+      );
+      expect(macros['calories'], closeTo(165.0, 1));
+    });
+
+    test('dishMacros con composición recalcula', () {
+      final dish = {
+        'name': 'Arroz con Pollo',
+        'calories': 550.0,
+        'protein_g': 28.0,
+        'carbs_g': 65.0,
+        'fat_g': 18.0,
+        'ingredients': [
+          {'ingredient_id': 1, 'grams': 100},
+          {'ingredient_id': 9, 'grams': 300},
+        ],
+      };
+      final macros = dishMacros(dish, ingredientsById);
+      expect(macros['calories'], closeTo(555.0, 1));
+    });
+
+    test('dishMacros sin composición usa macros planas (fallback)', () {
+      final dish = {
+        'name': 'Pollo a la Brasa (1/4)',
+        'calories': 500.0,
+        'protein_g': 40.0,
+        'carbs_g': 20.0,
+        'fat_g': 28.0,
+        'ingredients': null,
+      };
+      final macros = dishMacros(dish, ingredientsById);
+      expect(macros['calories'], 500.0);
+      expect(macros['protein_g'], 40.0);
+      expect(macros['carbs_g'], 20.0);
+      expect(macros['fat_g'], 28.0);
+    });
+  });
+
+  group('microsFromIngredients (T18.5.2)', () {
+    // Subconjunto del seed zzzz6_ingredients.sql (micros por 100 g):
+    // 1 pechuga pollo: iron_mg=0.7, calcium_mg=15
+    // 9 arroz blanco:  iron_mg=0.2, calcium_mg=10
+    // 18 olluco:       sodium_mg=NULL, zinc_mg=NULL, iron_mg=1.1
+    final ingredientsById = {
+      1: {'iron_mg': 0.7, 'calcium_mg': 15},
+      9: {'iron_mg': 0.2, 'calcium_mg': 10},
+      18: {'iron_mg': 1.1, 'sodium_mg': null, 'zinc_mg': null},
+    };
+
+    test('caso conocido: 200 g pechuga + 100 g arroz', () {
+      // iron    -> 2*0.7 + 1*0.2 = 1.6 mg
+      // calcium -> 2*15  + 1*10  = 40 mg
+      final micros = microsFromIngredients(
+        [
+          {'ingredient_id': 1, 'grams': 200},
+          {'ingredient_id': 9, 'grams': 100},
+        ],
+        ingredientsById,
+      );
+      expect(micros['iron_mg'], closeTo(1.6, 0.05));
+      expect(micros['calcium_mg'], closeTo(40.0, 0.05));
+    });
+
+    test('micro con todos NULL se omite (no 0 engañoso)', () {
+      final micros = microsFromIngredients(
+        [
+          {'ingredient_id': 18, 'grams': 200},
+        ],
+        ingredientsById,
+      );
+      // iron presente (aportado por el olluco), sodium/zinc NULL -> ausentes.
+      expect(micros.containsKey('iron_mg'), isTrue);
+      expect(micros.containsKey('sodium_mg'), isFalse);
+      expect(micros.containsKey('zinc_mg'), isFalse);
+    });
+
+    test('ignora ingredient_id ausente en el mapa', () {
+      final micros = microsFromIngredients(
+        [
+          {'ingredient_id': 999, 'grams': 500},
+        ],
+        ingredientsById,
+      );
+      expect(micros, isEmpty);
     });
   });
 }

@@ -1180,3 +1180,144 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
   - `[X]` A17.5.1.2: `weight_kg` + cardio cols + `food_catalog` en `diseno_db.md`.
 - **✅ Tests Unitarios:** N/A (docs).
 - **🎭 Tests de Simulación de Usuario:** N/A (docs).
+
+---
+
+## F18: Chat Nutricionista/Entrenador — Contexto, Multi-Semana, Preferencias, Micronutrientes, Alternativas [X]
+
+> Convierte el chat en un asistente tipo nutricionista/entrenador: recuerda la conversación, genera planes de ≥1 semana variados, repregunta si es ambiguo, respeta preferencias/restricciones, muestra micronutrientes reales y da alternativas. Fase grande (todo junto por decisión del usuario), secuenciada: contexto primero.
+> **AC de Fase:** historial en `/chat-plan` (arregla "hazlo a 3 semanas") · planes multi-día JSONB variados con compat. hacia atrás · repreguntas ante ambigüedad · `nutrition.food_preferences` (RLS) inyectadas al prompt · micronutrientes REALES (INS/CENAN; fallback parcial documentado, nunca inventados) · alternativas por restricción · ADR 16. **Requiere `docker compose down -v`.**
+
+### SF18.1: Memoria de conversación (contexto) [X]
+
+#### T18.1.1: Historial en `/chat-plan` + `_extract_intent` [X]
+- **🧠 Explicación:** Causa raíz del bug: `/chat-plan` recibe solo `req.message` y `_extract_intent` la interpreta aislada. Hay que enviar y usar el historial de la conversación (`AiProvider._messages` ya existe en memoria) para resolver referencias como "hazlo a 3 semanas".
+- **💡 Cómo hacerlo:** en `ai_provider.dart`, `sendMessage` incluye en el body `history: [{role, text}, ...]` (los `_messages` previos, acotados a los últimos ~10). En `main.py`, `ChatPlanRequest` gana `history: Optional[list] = None`; `_extract_intent(ai, message, history)` antepone el historial al prompt de extracción para que la intención/objetivo se resuelva con contexto (ej. si el turno previo fue un plan de comida, "3 semanas" → comida multi-semana). El servidor sigue stateless (historial por request).
+- **Acciones:**
+  - `[X]` A18.1.1.1: `sendMessage` envía `history`; `ChatPlanRequest` lo recibe.
+  - `[X]` A18.1.1.2: `_extract_intent` usa el historial para resolver intención/referencia.
+- **✅ Tests Unitarios:** con historial mockeado donde el turno previo fue comida, un mensaje "hazlo a 3 semanas" → intención `wants_meal_plan=true` (no workout); conteo de llamadas al LLM sin regresión.
+- **🎭 Tests de Simulación de Usuario:** (Ollama real) pedir plan de comida → "hazlo a 3 semanas" → recibir plan de comida, no rutina.
+
+### SF18.2: Preferencias y restricciones de nutrición [X]
+
+#### T18.2.1: Tabla `nutrition.food_preferences` + CRUD [X]
+- **🧠 Explicación:** No hay preferencias persistidas. Una tabla por usuario (RLS, como `meal_plans`) con alergias / disgustos / evitar / incluir-poco / restricciones (sin refri, utensilios faltantes).
+- **💡 Cómo hacerlo:** `docker/postgres/*.sql` nuevo: `nutrition.food_preferences (user_id UUID PK FK, allergies TEXT[], dislikes TEXT[], avoid TEXT[], rarely TEXT[], constraints JSONB, updated_at)` con RLS `auth.uid()=user_id` + `GRANT` a `authenticated` (patrón F10). En `nutrition_provider.dart`, `fetchPreferences`/`savePreferences` (seam de test).
+- **Acciones:**
+  - `[X]` A18.2.1.1: Tabla `food_preferences` (RLS) montada en compose.
+  - `[X]` A18.2.1.2: `fetchPreferences`/`savePreferences` en el provider.
+- **✅ Tests Unitarios:** RLS con JWT reales (extender `test_auth_rls_e2e.sh`: usuario A no ve prefs de B); provider arma el upsert correcto.
+- **🎭 Tests de Simulación de Usuario:** editar preferencias → persisten y se leen al reabrir.
+
+#### T18.2.2: UI de preferencias + inyección al prompt [X]
+- **🧠 Explicación:** Pantalla/sección para editar preferencias; el generador de comida debe respetarlas.
+- **💡 Cómo hacerlo:** una pantalla de "Preferencias de nutrición" (accesible desde Ajustes o el Diario) con campos para alergias/disgustos/evitar/incluir-poco/restricciones. En el backend, `_build_meal_plan` (y `/chat-plan`) recibe las preferencias y las antepone al prompt ("evita: …; el usuario es alérgico a: …; no tiene refrigerador").
+- **Acciones:**
+  - `[X]` A18.2.2.1: Pantalla de edición de preferencias.
+  - `[X]` A18.2.2.2: Inyección de preferencias al prompt de generación de comida.
+- **✅ Tests Unitarios:** el prompt construido contiene las alergias/restricciones dadas; widget test de la pantalla (guarda/lee).
+- **🎭 Tests de Simulación de Usuario:** declarar alergia al maní → el plan generado no incluye maní.
+
+### SF18.3: Repreguntar cuando es ambiguo [X]
+
+#### T18.3.1: Detección de ambigüedad → pregunta de clarificación [X]
+- **🧠 Explicación:** Ante una petición ambigua (rutina sin equipo, comida sin metas/días), repreguntar en vez de generar a medias. Depende de SF18.1 (con el historial, el siguiente turno genera).
+- **💡 Cómo hacerlo:** en `_extract_intent`/`chat_plan`, si faltan datos clave (p. ej. `wants_workout` pero sin equipo, o comida sin días/metas), devolver `{reply: "<pregunta>", needs_clarification: true, workout: null, meal_plan: null}`; el frontend muestra la pregunta como mensaje del asistente; el usuario responde y, con el historial (SF18.1), el orquestador ya genera.
+- **Acciones:**
+  - `[X]` A18.3.1.1: Detección de ambigüedad + pregunta de clarificación.
+  - `[X]` A18.3.1.2: Continuación con historial (genera tras la respuesta del usuario).
+- **✅ Tests Unitarios:** mensaje ambiguo (mock) → `needs_clarification` con pregunta, sin plan; mensaje completo → genera.
+- **🎭 Tests de Simulación de Usuario:** "hazme una rutina" (sin equipo) → el chat pregunta qué equipo tienes → responder → genera.
+
+### SF18.4: Planes multi-día / multi-semana variados [X]
+
+#### T18.4.1: Esquema `days` + generación multi-día [X]
+- **🧠 Explicación:** Hoy `meal_plans.meals`/`routines.items` son de 1 día. Se extiende el JSONB a estructura por día (`days: [{day, items|meals}]`), variando músculos/comidas por día. Compat. hacia atrás: un plan sin `days` se lee como 1 día.
+- **💡 Cómo hacerlo:** el orquestador genera `days` (≥7) variados (ej. push/pull/legs/…; comidas distintas). No hace falta cambiar el TIPO de columna (sigue JSONB), pero sí el shape que guarda/lee el frontend; añadir un helper que normalice "1 día viejo" ↔ "days nuevo". Requiere `down -v` solo si se añaden columnas (evaluar; puede no hacer falta si es solo shape JSONB).
+- **Acciones:**
+  - `[X]` A18.4.1.1: Shape `days` + normalización compat. hacia atrás.
+  - `[X]` A18.4.1.2: Generación multi-día variada en el orquestador (prompt).
+- **✅ Tests Unitarios:** el parser lee un plan `days` de 7 días y uno viejo de 1 día sin romper; la generación (mock) devuelve N días con contenido distinto entre días.
+- **🎭 Tests de Simulación de Usuario:** pedir "rutina semanal" → recibir 7 días con músculos distintos; "plan de comida de 2 semanas" → 14 días variados.
+
+#### T18.4.2: UI de navegación por días [X]
+- **🧠 Explicación:** Las tarjetas del chat, "Mis Rutinas"/"Mis Planes de Comida", y el Dashboard deben mostrar/navegar los días.
+- **💡 Cómo hacerlo:** en las tarjetas y pantallas, si el plan tiene `days`, un selector de día (tabs/PageView) o lista por día; si es de 1 día, se ve como antes.
+- **Acciones:**
+  - `[X]` A18.4.2.1: Navegación por días en la tarjeta del chat.
+  - `[X]` A18.4.2.2: Navegación por días en "Mis Rutinas"/"Mis Planes"/Dashboard.
+- **✅ Tests Unitarios:** widget test — un plan de N días renderiza el selector y muestra el día elegido; uno de 1 día se ve sin selector.
+- **🎭 Tests de Simulación de Usuario:** abrir un plan semanal guardado → cambiar de día → ver contenido distinto.
+
+### SF18.5: Micronutrientes con datos reales [X]
+
+#### T18.5.1: Sourcing INS/CENAN + micros en `food_catalog` [X]
+- **🧠 Explicación:** Micronutrientes REALES (no estimados por IA) desde la tabla peruana de composición de alimentos (INS/CENAN). Riesgo: conseguir la fuente en formato usable es incierto → fallback documentado (subconjunto de micros clave para los platos ya en `food_catalog`, marcado como parcial).
+- **💡 Cómo hacerlo:** intentar obtener las "Tablas Peruanas de Composición de Alimentos" (INS/CENAN) en CSV/PDF; extraer micros clave (hierro, calcio, sodio, vitamina C, vitamina A, zinc, etc.). Extender `nutrition.food_catalog` con columnas de micros (o una tabla `food_micronutrients` asociada). Poblar por seed generado. Si la fuente completa no se consigue, documentar el subconjunto/fallback en el `COMMENT` y en el ADR — nunca inventar micros presentándolos como reales.
+- **Acciones:**
+  - `[X]` A18.5.1.1: Sourcing de la fuente real (o fallback parcial documentado). *(Micros por 100 g sobre `ingredients`, no sobre `food_catalog`: valores estimados de tablas estándar/INS-CENAN, subconjunto de 7 micros clave, marcado como parcial en el COMMENT; no fiables → NULL.)*
+  - `[X]` A18.5.1.2: Extender `ingredients` con micros + poblar por seed.
+- **✅ Tests Unitarios:** `count` de filas con micros; los valores vienen de la fuente (no NULL para los platos cubiertos); lectura pública (extender E2E).
+- **🎭 Tests de Simulación de Usuario:** ver micros reales de un plato del catálogo.
+
+#### T18.5.2: UI de micronutrientes [X]
+- **🧠 Explicación:** Mostrar micros en el detalle de comida/planes, además de macros.
+- **💡 Cómo hacerlo:** en el diálogo de borrador/detalle de comida y en las tarjetas de plan, una sección de micros (los que existan), marcando si es dato parcial.
+- **Acciones:**
+  - `[X]` A18.5.2.1: Sección de micros en la UI de comida/planes.
+- **✅ Tests Unitarios:** widget test — un plato con micros los muestra; sin micros, no rompe.
+- **🎭 Tests de Simulación de Usuario:** buscar un plato → ver sus micronutrientes.
+
+### SF18.6: Alternativas por restricciones [X]
+
+#### T18.6.1: Alternativas en el generador y en el chat [X]
+- **🧠 Explicación:** Dar sustituciones cuando el usuario no tiene refri/utensilio o un ingrediente es difícil de conseguir.
+- **💡 Cómo hacerlo:** inyectar las restricciones (de SF18.2 y del contexto SF18.1) al prompt del generador para que proponga alternativas; en el chat, soportar "dame una alternativa a X" (con el historial, el LLM sugiere sustitutos coherentes con el plan).
+- **Acciones:**
+  - `[X]` A18.6.1.1: Inyección de restricciones al prompt (alternativas).
+  - `[X]` A18.6.1.2: "Dame una alternativa a X" en el chat (usa el historial).
+- **✅ Tests Unitarios:** el prompt incluye las restricciones; con restricción "sin refrigerador" el mensaje al LLM lo refleja.
+- **🎭 Tests de Simulación de Usuario:** declarar "no tengo refri" → pedir un plan → el plan evita cosas que requieren refrigeración / ofrece alternativas.
+
+### SF18.8: Catálogo por ingredientes + platos componibles [X]
+
+> **Dependencia:** ejecutar ANTES de SF18.5 — los micronutrientes se cuelgan del ingrediente (macros por 100 g), no del plato. Requiere `docker compose down -v` (pedir confirmación explícita).
+
+#### T18.8.1: Tabla `nutrition.ingredients` (macros por 100 g/ml) + seed [X]
+- **🧠 Explicación:** Hoy `food_catalog` solo tiene platos "planos" (arroz con pollo con macros fijas). Falta el nivel ingrediente (pechuga de pollo, muslo, arroz…) con macros por 100 g/ml, que es lo reutilizable y sobre lo que se componen los platos.
+- **💡 Cómo hacerlo:** SQL nuevo en `docker/postgres/`: `nutrition.ingredients (id SERIAL PK, name TEXT UNIQUE, category TEXT, unit TEXT CHECK (unit IN ('g','ml')) DEFAULT 'g', calories_per_100 REAL, protein_per_100 REAL, carbs_per_100 REAL, fat_per_100 REAL)`, con RLS OFF + `GRANT SELECT` público (mismo patrón que `food_catalog`/`exercises`). Seed de ingredientes base peruanos (los que componen los ~50 platos ya existentes: pollo, arroz, papa, aceite, cebolla, ají, etc.), macros marcadas como estimaciones honestas.
+- **Acciones:**
+  - `[X]` A18.8.1.1: Tabla `ingredients` (lectura pública) montada en compose.
+  - `[X]` A18.8.1.2: Seed de ingredientes base que cubren los platos actuales.
+- **✅ Tests Unitarios:** `count` de filas ≥ N sembradas; extender `test_auth_rls_e2e.sh` (lectura pública de `ingredients` con JWT real, como `food_catalog`).
+- **🎭 Tests de Simulación de Usuario:** buscar un ingrediente (p. ej. "pechuga de pollo") y ver sus macros por 100 g.
+
+#### T18.8.2: Composición de platos + recálculo de macros [X]
+- **🧠 Explicación:** Un plato debe poder declararse como conjunto de ingredientes con cantidades (arroz con pollo = pechuga 100 g + arroz 300 g + …), para que al editar/quitar/agregar porciones los macros se recalculen. Compat. hacia atrás: los platos sin composición siguen usando sus macros planas.
+- **💡 Cómo hacerlo:** `food_catalog` gana `ingredients JSONB` (`[{ingredient_id, grams}]`, nullable). Helper puro `macrosFromIngredients(items, ingredientsById)` que suma `qty/100 × por_100` por ingrediente. Si `food_catalog.ingredients` es NULL → usar las macros planas existentes (sin romper F17). No hace falta tabla relacional nueva (JSONB, patrón ya usado en `meals`/`items`). Requiere `down -v` por el cambio de esquema.
+- **Acciones:**
+  - `[X]` A18.8.2.1: Columna `ingredients` JSONB en `food_catalog` + poblar la composición de un subconjunto de platos peruanos.
+  - `[X]` A18.8.2.2: Helper de recálculo de macros desde ingredientes (puro, testeable) con fallback a macros planas.
+- **✅ Tests Unitarios:** `macrosFromIngredients` suma correcto (caso conocido: 100 g pechuga + 300 g arroz → kcal/prot/carb/grasa esperados ±1); plato sin composición devuelve sus macros planas.
+- **🎭 Tests de Simulación de Usuario:** elegir "arroz con pollo" → ver que se descompone en sus ingredientes con gramos.
+
+#### T18.8.3: UI de plato componible (editar porciones) [X]
+- **🧠 Explicación:** Al registrar un plato, el usuario debe poder tomarlo completo o ver/editar sus ingredientes (cambiar gramos/ml, quitar, agregar otro) y ver los macros actualizarse en vivo, antes de guardar en el diario.
+- **💡 Cómo hacerlo:** en `diary_screen.dart`, al elegir un plato del catálogo, expandir la lista de ingredientes (de `food_catalog.ingredients`) en el diálogo de borrador existente; cada ingrediente con input de cantidad; botón para agregar ingrediente (busca en `ingredients` — seam de T18.8.1); recálculo con el helper de T18.8.2; al confirmar, registrar (plato completo o los ingredientes). Reusar el diálogo de borrador de F9/F16.
+- **Acciones:**
+  - `[X]` A18.8.3.1: Expansión editable de ingredientes en el diálogo de borrador.
+  - `[X]` A18.8.3.2: Agregar/quitar ingrediente + recálculo en vivo + registro.
+- **✅ Tests Unitarios:** widget test — editar la porción de un ingrediente recalcula los macros mostrados; quitar un ingrediente los reduce (con seams, sin Supabase real).
+- **🎭 Tests de Simulación de Usuario:** elegir un plato → cambiar 300 g de arroz a 150 g → ver kcal bajar → guardar.
+
+### SF18.7: Documentación [X]
+
+#### T18.7.1: ADR 16 + esquema en `diseno_db.md` [X]
+- **🧠 Explicación:** Documentar contexto conversacional, planes multi-día, preferencias, micronutrientes (con su origen/fallback) y alternativas.
+- **💡 Cómo hacerlo:** ADR 16 en `architecture.md`; en `diseno_db.md`: shape `days`, `nutrition.food_preferences`, micros en `food_catalog`.
+- **Acciones:**
+  - `[X]` A18.7.1.1: ADR 16 en `architecture.md`.
+  - `[X]` A18.7.1.2: Esquema nuevo en `diseno_db.md` (days, `food_preferences`, micros, `ingredients` + composición de `food_catalog`).
+- **✅ Tests Unitarios:** N/A (docs).
+- **🎭 Tests de Simulación de Usuario:** N/A (docs).

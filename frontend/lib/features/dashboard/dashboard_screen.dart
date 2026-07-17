@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../nutrition/nutrition_provider.dart';
 import '../training/training_provider.dart';
 import '../auth/onboarding_provider.dart';
+import '../ai/ai_provider.dart';
 import '../ai/chat_fab.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -751,7 +752,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildMealPlanSummary(Map<String, dynamic> plan, double consumedCalories) {
-    final plannedCalories = (plan['meals'] as List? ?? const [])
+    // ponytail: "Plan de Hoy" resume el día 1 del plan default (multi-día,
+    // T18.4.2); un día por defecto basta, sin lógica de calendario.
+    final planDay = normalizePlanDays(planFromRow(plan, 'meals'), 'meals').first;
+    final plannedCalories = (planDay['meals'] as List? ?? const [])
         .cast<Map<String, dynamic>>()
         .fold<double>(0, (sum, m) => sum + ((m['calories'] as num?)?.toDouble() ?? 0));
 

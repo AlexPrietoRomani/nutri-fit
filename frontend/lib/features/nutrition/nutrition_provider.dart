@@ -3,6 +3,111 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/supabase_config.dart';
 
+/// Recalcula los macros de un plato a partir de su composición por ingredientes
+/// (T18.8.2). Función PURA y testeable sin Supabase.
+///
+/// [items] es la composición: cada item `{ingredient_id, grams}`.
+/// [ingredientsById] mapea ingredient_id -> fila de `nutrition.ingredients`
+/// (con los campos `*_per_100`). Los ids ausentes en el mapa se ignoran.
+///
+/// Devuelve `{calories, protein_g, carbs_g, fat_g}` sumando
+/// `grams/100 * <campo>_per_100` por ingrediente, redondeado a 1 decimal.
+Map<String, double> macrosFromIngredients(
+  List<Map<String, dynamic>> items,
+  Map<int, Map<String, dynamic>> ingredientsById,
+) {
+  double calories = 0, protein = 0, carbs = 0, fat = 0;
+  for (final item in items) {
+    final id = (item['ingredient_id'] as num?)?.toInt();
+    final ing = id == null ? null : ingredientsById[id];
+    if (ing == null) continue; // id ausente en el mapa: se ignora
+    final factor = ((item['grams'] as num?)?.toDouble() ?? 0) / 100.0;
+    double per(String key) => (ing[key] as num?)?.toDouble() ?? 0;
+    calories += factor * per('calories_per_100');
+    protein += factor * per('protein_per_100');
+    carbs += factor * per('carbs_per_100');
+    fat += factor * per('fat_per_100');
+  }
+  double r(double v) => (v * 10).round() / 10;
+  return {
+    'calories': r(calories),
+    'protein_g': r(protein),
+    'carbs_g': r(carbs),
+    'fat_g': r(fat),
+  };
+}
+
+/// Los 7 micronutrientes por 100 g/ml que `nutrition.ingredients` puede traer.
+/// Mapea la clave de columna -> (etiqueta legible, unidad). Orden estable.
+const microNutrients = <String, (String, String)>{
+  'iron_mg': ('Hierro', 'mg'),
+  'calcium_mg': ('Calcio', 'mg'),
+  'sodium_mg': ('Sodio', 'mg'),
+  'potassium_mg': ('Potasio', 'mg'),
+  'vitamin_c_mg': ('Vitamina C', 'mg'),
+  'vitamin_a_ug': ('Vitamina A', 'µg'),
+  'zinc_mg': ('Zinc', 'mg'),
+};
+
+/// Suma los micronutrientes de un plato desde su composición (T18.5.2).
+/// Función PURA y testeable sin Supabase.
+///
+/// Como los micros son un subconjunto PARCIAL y algunos ingredientes los tienen
+/// NULL, los NULL se IGNORAN (no cuentan como 0). Un micro solo aparece en el
+/// resultado si al menos un ingrediente aportó un valor no-NULL para él; si
+/// todos son NULL/ausentes, el micro se OMITE (ausencia honesta, no un 0 falso).
+///
+/// [items] es `{ingredient_id, grams}`; [ingredientsById] mapea id -> fila.
+/// Suma `grams/100 * <micro>` y redondea a 1 decimal.
+Map<String, double> microsFromIngredients(
+  List<Map<String, dynamic>> items,
+  Map<int, Map<String, dynamic>> ingredientsById,
+) {
+  final totals = <String, double>{};
+  final present = <String>{};
+  for (final item in items) {
+    final id = (item['ingredient_id'] as num?)?.toInt();
+    final ing = id == null ? null : ingredientsById[id];
+    if (ing == null) continue;
+    final factor = ((item['grams'] as num?)?.toDouble() ?? 0) / 100.0;
+    for (final key in microNutrients.keys) {
+      final raw = ing[key] as num?;
+      if (raw == null) continue; // NULL: no cuenta
+      present.add(key);
+      totals[key] = (totals[key] ?? 0) + factor * raw.toDouble();
+    }
+  }
+  return {
+    for (final key in microNutrients.keys)
+      if (present.contains(key)) key: (totals[key]! * 10).round() / 10,
+  };
+}
+
+/// Macros efectivos de un plato con FALLBACK a macros planas (T18.8.2).
+///
+/// Si el plato trae composición (`dish['ingredients']` no null ni vacío), la
+/// recalcula con [macrosFromIngredients]. Si NO trae composición (NULL/vacío,
+/// caso de la mayoría de platos del catálogo), devuelve las macros planas
+/// existentes del plato (`calories/protein_g/carbs_g/fat_g`), preservando la
+/// compatibilidad con los platos que nunca declararon ingredientes.
+Map<String, double> dishMacros(
+  Map<String, dynamic> dish,
+  Map<int, Map<String, dynamic>> ingredientsById,
+) {
+  final raw = dish['ingredients'];
+  if (raw is List && raw.isNotEmpty) {
+    final items = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    return macrosFromIngredients(items, ingredientsById);
+  }
+  double f(String key) => (dish[key] as num?)?.toDouble() ?? 0;
+  return {
+    'calories': f('calories'),
+    'protein_g': f('protein_g'),
+    'carbs_g': f('carbs_g'),
+    'fat_g': f('fat_g'),
+  };
+}
+
 class FoodLog {
   final int? id;
   final String userId;
@@ -329,6 +434,107 @@ class NutritionProvider extends ChangeNotifier {
       return List<Map<String, dynamic>>.from(data);
     } catch (_) {
       return [];
+    }
+  }
+
+  /// Busca ingredientes base en `nutrition.ingredients` por nombre (T18.8.1/T18.5.1).
+  ///
+  /// Devuelve id, nombre, macros por 100 g/ml y los 7 micronutrientes clave.
+  /// [searchOverride] es el seam de test (mismo patrón que [searchFoodCatalog]):
+  /// evita instanciar un `SupabaseClient` real. Devuelve `[]` ante error o query vacía.
+  Future<List<Map<String, dynamic>>> searchIngredients(
+    String query, {
+    Future<List<Map<String, dynamic>>> Function(String)? searchOverride,
+  }) async {
+    if (query.trim().isEmpty) return [];
+    try {
+      if (searchOverride != null) {
+        return await searchOverride(query);
+      }
+      final data = await _client
+          .schema('nutrition')
+          .from('ingredients')
+          .select()
+          .ilike('name', '%$query%')
+          .limit(30);
+      return List<Map<String, dynamic>>.from(data);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Carga las filas de `nutrition.ingredients` para un conjunto de ids
+  /// (T18.8.3): usado por la UI de plato componible para resolver nombres y
+  /// macros de cada `ingredient_id` de la composición. [fetchOverride] es el
+  /// seam de test (mismo patrón que [searchIngredients]): evita instanciar un
+  /// `SupabaseClient` real. Devuelve `[]` ante lista vacía o error.
+  Future<List<Map<String, dynamic>>> fetchIngredientsByIds(
+    List<int> ids, {
+    Future<List<Map<String, dynamic>>> Function(List<int>)? fetchOverride,
+  }) async {
+    if (ids.isEmpty) return [];
+    try {
+      if (fetchOverride != null) {
+        return await fetchOverride(ids);
+      }
+      final data = await _client
+          .schema('nutrition')
+          .from('ingredients')
+          .select()
+          .inFilter('id', ids);
+      return List<Map<String, dynamic>>.from(data);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Lee la fila de preferencias/restricciones del usuario en
+  /// `nutrition.food_preferences`, o `null` si aún no existe (T18.2.1).
+  ///
+  /// [fetchOverride] es el seam de test (mismo patrón que [fetchMealPlans], ver
+  /// INC-015): evita instanciar un `SupabaseClient` real.
+  Future<Map<String, dynamic>?> fetchPreferences({
+    Future<Map<String, dynamic>?> Function()? fetchOverride,
+  }) async {
+    try {
+      if (fetchOverride != null) {
+        return await fetchOverride();
+      }
+      final data = await _client
+          .schema('nutrition')
+          .from('food_preferences')
+          .select()
+          .eq('user_id', _currentUserId)
+          .maybeSingle();
+      return data;
+    } catch (e) {
+      _errorMessage = e.toString();
+      return null;
+    }
+  }
+
+  /// Guarda (upsert por `user_id`) las preferencias del usuario en
+  /// `nutrition.food_preferences` (T18.2.1). Inserta o actualiza la única fila
+  /// del usuario. [saveOverride] es el seam de test (mismo patrón que
+  /// [setDefaultMealPlan]): evita instanciar un `SupabaseClient` real.
+  Future<void> savePreferences(
+    Map<String, dynamic> prefs, {
+    Future<void> Function(Map<String, dynamic>)? saveOverride,
+    String? userId,
+  }) async {
+    final payload = {...prefs, 'user_id': userId ?? _currentUserId};
+    try {
+      if (saveOverride != null) {
+        await saveOverride(payload);
+      } else {
+        await _client
+            .schema('nutrition')
+            .from('food_preferences')
+            .upsert(payload, onConflict: 'user_id');
+      }
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
     }
   }
 

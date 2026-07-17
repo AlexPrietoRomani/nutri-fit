@@ -296,3 +296,40 @@ Este documento detalla la planificación del desarrollo de Nutri-Fit, incluyendo
   - T17.4.1: Buscador contra `nutrition.food_catalog` al agregar comida → prellena → `addFoodLog`.
 - **F17.SF5: Documentación**
   - T17.5.1: ADR 15 en `architecture.md` + esquema nuevo en `diseno_db.md`.
+
+### Fase 18: Chat Nutricionista/Entrenador — Contexto, Planes Multi-Semana, Preferencias, Micronutrientes y Alternativas
+- **Macro-objetivo:** Convertir el chat de un generador de planes de un solo turno/un solo día en un asistente tipo nutricionista/entrenador: recuerda la conversación, genera planes de mínimo una semana que varían por día, repregunta cuando la petición es ambigua, respeta preferencias/restricciones del usuario (alergias, disgustos, sin refri/utensilio, ingredientes difíciles), muestra micronutrientes reales y ofrece alternativas.
+- **Decisión de alcance:** el usuario pidió explícitamente hacerlo TODO en una sola Fase F18 (grande). Se construye por sub-fases secuenciadas, empezando por el contexto conversacional (desbloquea repreguntas y multi-turno). Los micronutrientes usan **datos reales** (tabla peruana de composición de alimentos INS/CENAN); si la fuente oficial completa no se consigue en formato usable, el fallback documentado es un subconjunto de micros clave para los platos ya en `food_catalog`, marcado como parcial — **nunca micros inventados presentados como reales**.
+- **Criterios de Aceptación (AC):**
+  - **AC1 (contexto):** `/chat-plan` recibe el historial de la conversación y lo usa; tras hablar de comidas, "hazlo a 3 semanas" genera un plan de COMIDA (no una rutina). El chat sigue stateless en el servidor (historial por request).
+  - **AC2 (multi-día):** `meal_plans`/`routines` soportan estructura por día (JSONB `days`); el orquestador genera planes de ≥7 días que varían (músculos distintos por día en entrenamiento, comidas distintas por día); la UI muestra/navega los días; los planes de 1 día previos (F13/F16) siguen leyéndose (compatibilidad hacia atrás).
+  - **AC3 (repreguntar):** ante una petición ambigua, el chat devuelve una pregunta de clarificación (equipo, días, alergias…) en vez de un plan a medias; con el historial, el siguiente turno genera.
+  - **AC4 (preferencias):** tabla `nutrition.food_preferences` (RLS por usuario) con alergias / no-le-gusta / evitar / incluir-poco / restricciones (sin refri, utensilios); UI para editarlas; se inyectan al prompt del generador de comida y este las respeta.
+  - **AC5 (micronutrientes):** `food_catalog` (o tabla asociada) extendida con micronutrientes reales de la fuente peruana; se muestran en la UI de comida/planes; documentado el origen y si es parcial.
+  - **AC6 (alternativas):** el generador ofrece sustituciones cuando el usuario declara una restricción (sin refri/utensilio/ingrediente difícil); en el chat se puede pedir "dame una alternativa a X".
+  - **AC7 (docs):** ADR 16 en `architecture.md`; esquema (planes multi-día, `food_preferences`, micros) en `diseno_db.md`.
+- **Estrategia de Pruebas (nivel Fase):**
+  - **Tests Unitarios:** `_extract_intent`/orquestador con historial mockeado resuelve la referencia ("3 semanas" → comida); detección de ambigüedad → pregunta; RLS de `food_preferences` con JWT reales; parser de planes multi-día (N días, variación); micros parseados desde la fuente; inyección de preferencias/restricciones al prompt (el prompt contiene las alergias/restricciones).
+  - **Tests de Simulación de Usuario:** conversación real (Ollama): pedir plan de comida → "hazlo a 3 semanas" → recibir plan de comida de 3 semanas variado; petición ambigua → el chat repregunta; declarar alergia → el plan la respeta; ver micros de un plato; pedir alternativa sin refri.
+- **F18.SF1: Memoria de conversación (contexto)**
+  - T18.1.1: `AiProvider.sendMessage` envía el historial; `/chat-plan` + `_extract_intent` lo reciben y usan para resolver intención/referencia.
+- **F18.SF2: Preferencias y restricciones de nutrición**
+  - T18.2.1: Tabla `nutrition.food_preferences` (RLS) + provider/CRUD.
+  - T18.2.2: UI para editar preferencias (alergias, disgustos, evitar, incluir-poco, sin refri/utensilios) + inyección al prompt de generación de comida.
+- **F18.SF3: Repreguntar cuando es ambiguo**
+  - T18.3.1: Detección de ambigüedad en el orquestador → pregunta de clarificación en vez de plan; con historial (SF1), el siguiente turno genera.
+- **F18.SF4: Planes multi-día / multi-semana variados**
+  - T18.4.1: Esquema JSONB `days` en `meal_plans`/`routines` (compat. hacia atrás con 1 día) + generación multi-día variada en el orquestador.
+  - T18.4.2: UI para mostrar/navegar los días (tarjetas del chat, "Mis Rutinas"/"Mis Planes", Dashboard).
+- **F18.SF5: Micronutrientes con datos reales**
+  - T18.5.1: Sourcing de la tabla peruana (INS/CENAN) + extender `food_catalog` con micros (o tabla asociada) + poblarla (fallback parcial documentado si la fuente completa no se consigue).
+  - T18.5.2: UI de micronutrientes en comida/planes.
+- **F18.SF6: Alternativas por restricciones**
+  - T18.6.1: Inyección de restricciones al prompt + mecanismo de "dame una alternativa a X" en el chat.
+- **F18.SF8: Catálogo por ingredientes + platos componibles**
+  - Modelo de comida a nivel ingrediente (macros por 100g/ml) y platos compuestos de ingredientes con cantidades, para poder añadir/quitar/cambiar porciones. **Debe ir ANTES de SF18.5** (los micros se cuelgan del ingrediente, no del plato). Requiere `docker compose down -v`.
+  - T18.8.1: Tabla `nutrition.ingredients` (macros por 100 g/ml) + seed de ingredientes base peruanos (lectura pública, como `food_catalog`).
+  - T18.8.2: Composición de platos: `food_catalog` gana `ingredients` JSONB `[{ingredient_id, grams|ml}]`; helper que recalcula macros del plato desde sus ingredientes; compat. con platos sin composición (macros planas actuales).
+  - T18.8.3: UI — al elegir un plato, expandir sus ingredientes; añadir/quitar/cambiar porción; recálculo en vivo de macros; opción de registrar el plato completo o ingrediente a ingrediente.
+- **F18.SF7: Documentación**
+  - T18.7.1: ADR 16 en `architecture.md` + esquema nuevo en `diseno_db.md` (incluye `ingredients` + composición de `food_catalog`).

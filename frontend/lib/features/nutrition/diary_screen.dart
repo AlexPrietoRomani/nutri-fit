@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'nutrition_provider.dart';
+import 'nutrition_preferences_screen.dart';
 import '../ai/ai_provider.dart';
 import '../ai/vision_service.dart';
 import '../ai/chat_fab.dart';
@@ -141,6 +142,13 @@ class _DiaryScreenState extends State<DiaryScreen> {
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.white),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.tune_rounded, color: Color(0xFF2ED573)),
+            tooltip: 'Preferencias de nutrición',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const NutritionPreferencesScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.photo_camera_rounded, color: Color(0xFF2ED573)),
             tooltip: 'Tomar foto con IA',
@@ -399,7 +407,9 @@ class _DiaryScreenState extends State<DiaryScreen> {
             separatorBuilder: (context, index) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final plan = provider.mealPlans[index];
-              final mealCount = (plan['meals'] as List? ?? const []).length;
+              // Soporta planes multi-día (T18.4.2): cuenta las comidas del día 1.
+              final days = normalizePlanDays(planFromRow(plan, 'meals'), 'meals');
+              final mealCount = (days.first['meals'] as List? ?? const []).length;
               return Card(
                 color: const Color(0xFF1E201E),
                 child: Padding(
@@ -602,7 +612,10 @@ class _DiaryScreenState extends State<DiaryScreen> {
     final defaultPlan = context.watch<NutritionProvider>().defaultMealPlan;
     if (defaultPlan == null) return null;
 
-    final plannedItems = (defaultPlan['meals'] as List? ?? const [])
+    // ponytail: compara contra el día 1 del plan default (multi-día, T18.4.2);
+    // lógica de calendario por día queda fuera de alcance.
+    final planDay = normalizePlanDays(planFromRow(defaultPlan, 'meals'), 'meals').first;
+    final plannedItems = (planDay['meals'] as List? ?? const [])
         .cast<Map<String, dynamic>>()
         .where((m) => m['meal_type'] == mealType)
         .toList();
@@ -927,6 +940,23 @@ class _DiaryScreenState extends State<DiaryScreen> {
                               trailing: Text('${calories.round()} kcal', style: const TextStyle(color: Color(0xFF2ED573), fontSize: 13, fontWeight: FontWeight.bold)),
                               onTap: () {
                                 Navigator.pop(ctx);
+                                final comp = dish['ingredients'];
+                                if (comp is List && comp.isNotEmpty) {
+                                  // Plato con composición (T18.8.3): abre la UI
+                                  // editable de ingredientes.
+                                  showDialog(
+                                    context: context,
+                                    builder: (_) => ChangeNotifierProvider<NutritionProvider>.value(
+                                      value: provider,
+                                      child: _ComposableDishDialog(
+                                        dish: dish,
+                                        mealType: mealType,
+                                        date: _selectedDate,
+                                      ),
+                                    ),
+                                  );
+                                  return;
+                                }
                                 _showMealDraft({
                                   'food_items': [dish['name']?.toString() ?? 'Comida'],
                                   'calories': calories,
@@ -1068,6 +1098,276 @@ class _DiaryScreenState extends State<DiaryScreen> {
         Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
         const SizedBox(height: 4),
         Text(value, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
+      ],
+    );
+  }
+}
+
+/// UI de plato componible (T18.8.3): al elegir un plato del catálogo con
+/// composición (`ingredients`), muestra su lista de ingredientes editable —
+/// cambiar gramos, quitar o agregar otro ingrediente — recalculando los macros
+/// EN VIVO con [macrosFromIngredients]. Al confirmar registra con `addFoodLog`
+/// usando los macros recalculados y el nombre del plato.
+class _ComposableDishDialog extends StatefulWidget {
+  const _ComposableDishDialog({
+    required this.dish,
+    required this.mealType,
+    required this.date,
+  });
+
+  final Map<String, dynamic> dish;
+  final String mealType;
+  final DateTime date;
+
+  @override
+  State<_ComposableDishDialog> createState() => _ComposableDishDialogState();
+}
+
+class _ComposableDishDialogState extends State<_ComposableDishDialog> {
+  // Composición editable: cada item {ingredient_id, grams}. Copias mutables.
+  late final List<Map<String, dynamic>> _items;
+  Map<int, Map<String, dynamic>> _ingredientsById = {};
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = (widget.dish['ingredients'] as List)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    _loadIngredients();
+  }
+
+  Future<void> _loadIngredients() async {
+    final ids = _items
+        .map((e) => (e['ingredient_id'] as num?)?.toInt())
+        .whereType<int>()
+        .toSet()
+        .toList();
+    final rows = await context.read<NutritionProvider>().fetchIngredientsByIds(ids);
+    if (!mounted) return;
+    setState(() {
+      _ingredientsById = {
+        for (final r in rows) (r['id'] as num).toInt(): r,
+      };
+      _loading = false;
+    });
+  }
+
+  Future<void> _addIngredient() async {
+    final provider = context.read<NutritionProvider>();
+    final controller = TextEditingController();
+    final picked = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) {
+        List<Map<String, dynamic>> results = [];
+        bool loading = false;
+        return StatefulBuilder(
+          builder: (ctx, setSt) {
+            Future<void> doSearch() async {
+              setSt(() => loading = true);
+              final r = await provider.searchIngredients(controller.text);
+              setSt(() {
+                results = r;
+                loading = false;
+              });
+            }
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E201E),
+              title: const Text('Agregar ingrediente', style: TextStyle(color: Colors.white, fontSize: 16)),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            key: const Key('ingredient_search_field'),
+                            controller: controller,
+                            autofocus: true,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: const InputDecoration(
+                              hintText: 'Ej. Arroz',
+                              hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
+                              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF2E302E))),
+                            ),
+                            onSubmitted: (_) => doSearch(),
+                          ),
+                        ),
+                        IconButton(
+                          key: const Key('ingredient_search_btn'),
+                          icon: const Icon(Icons.search_rounded, color: Color(0xFF2ED573)),
+                          onPressed: doSearch,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (loading)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2ED573))),
+                      )
+                    else
+                      Flexible(
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: results.length,
+                          itemBuilder: (_, i) {
+                            final ing = results[i];
+                            return ListTile(
+                              key: Key('ingredient_result_$i'),
+                              title: Text(ing['name']?.toString() ?? '', style: const TextStyle(color: Colors.white, fontSize: 14)),
+                              onTap: () => Navigator.pop(ctx, ing),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar', style: TextStyle(color: Colors.grey))),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+    final id = (picked['id'] as num).toInt();
+    setState(() {
+      _ingredientsById = {..._ingredientsById, id: picked};
+      _items.add({'ingredient_id': id, 'grams': 100});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final macros = macrosFromIngredients(_items, _ingredientsById);
+    final micros = microsFromIngredients(_items, _ingredientsById);
+    final dishName = widget.dish['name']?.toString() ?? 'Plato';
+
+    return AlertDialog(
+      backgroundColor: const Color(0xFF1E201E),
+      title: Text(dishName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+      content: _loading
+          ? const Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2ED573))),
+            )
+          : SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    key: const Key('composable_macros'),
+                    '${macros['calories']!.round()} kcal · P ${macros['protein_g']!.round()}g · C ${macros['carbs_g']!.round()}g · G ${macros['fat_g']!.round()}g',
+                    style: const TextStyle(color: Color(0xFF2ED573), fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: _items.length,
+                      itemBuilder: (_, i) {
+                        final item = _items[i];
+                        final id = (item['ingredient_id'] as num?)?.toInt();
+                        final ing = id == null ? null : _ingredientsById[id];
+                        final name = ing?['name']?.toString() ?? 'Ingrediente $id';
+                        return Padding(
+                          key: Key('composable_ingredient_$i'),
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              Expanded(child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 13))),
+                              SizedBox(
+                                width: 64,
+                                child: TextFormField(
+                                  key: Key('composable_grams_$i'),
+                                  initialValue: '${(item['grams'] as num?)?.round() ?? 0}',
+                                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                                  textAlign: TextAlign.end,
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(
+                                    isDense: true,
+                                    suffixText: 'g',
+                                    suffixStyle: TextStyle(color: Colors.grey, fontSize: 12),
+                                  ),
+                                  onChanged: (v) => setState(() => item['grams'] = double.tryParse(v) ?? 0),
+                                ),
+                              ),
+                              IconButton(
+                                key: Key('composable_remove_$i'),
+                                icon: const Icon(Icons.close_rounded, color: Colors.redAccent, size: 18),
+                                onPressed: () => setState(() => _items.removeAt(i)),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  TextButton.icon(
+                    key: const Key('composable_add_ingredient'),
+                    onPressed: _addIngredient,
+                    icon: const Icon(Icons.add, size: 18, color: Color(0xFF2ED573)),
+                    label: const Text('Agregar ingrediente', style: TextStyle(color: Color(0xFF2ED573), fontSize: 13)),
+                  ),
+                  const Divider(color: Colors.white24, height: 20),
+                  const Text(
+                    'Micronutrientes (estimado, parcial)',
+                    style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    key: const Key('composable_micros'),
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: [
+                      for (final entry in microNutrients.entries)
+                        Text(
+                          micros.containsKey(entry.key)
+                              ? '${entry.value.$1}: ${micros[entry.key]} ${entry.value.$2}'
+                              : '${entry.value.$1}: s/d',
+                          style: TextStyle(
+                            color: micros.containsKey(entry.key) ? Colors.white : Colors.white38,
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(color: Colors.grey))),
+        FilledButton(
+          key: const Key('composable_save'),
+          onPressed: () async {
+            final ok = await context.read<NutritionProvider>().addFoodLog(
+                  foodName: dishName,
+                  calories: macros['calories']!,
+                  proteinG: macros['protein_g']!,
+                  carbsG: macros['carbs_g']!,
+                  fatG: macros['fat_g']!,
+                  servingSizeG: _items.fold<double>(0, (s, e) => s + ((e['grams'] as num?)?.toDouble() ?? 0)),
+                  mealType: widget.mealType,
+                  date: widget.date,
+                );
+            if (context.mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(ok ? 'Comida añadida' : 'No se pudo guardar')),
+              );
+            }
+          },
+          child: const Text('Guardar'),
+        ),
       ],
     );
   }
