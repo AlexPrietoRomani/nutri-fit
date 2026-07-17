@@ -417,6 +417,31 @@ class NutritionProvider extends ChangeNotifier {
     }
   }
 
+  /// Carga las filas de `nutrition.ingredients` para un conjunto de ids
+  /// (T18.8.3): usado por la UI de plato componible para resolver nombres y
+  /// macros de cada `ingredient_id` de la composición. [fetchOverride] es el
+  /// seam de test (mismo patrón que [searchIngredients]): evita instanciar un
+  /// `SupabaseClient` real. Devuelve `[]` ante lista vacía o error.
+  Future<List<Map<String, dynamic>>> fetchIngredientsByIds(
+    List<int> ids, {
+    Future<List<Map<String, dynamic>>> Function(List<int>)? fetchOverride,
+  }) async {
+    if (ids.isEmpty) return [];
+    try {
+      if (fetchOverride != null) {
+        return await fetchOverride(ids);
+      }
+      final data = await _client
+          .schema('nutrition')
+          .from('ingredients')
+          .select()
+          .inFilter('id', ids);
+      return List<Map<String, dynamic>>.from(data);
+    } catch (_) {
+      return [];
+    }
+  }
+
   /// Lee la fila de preferencias/restricciones del usuario en
   /// `nutrition.food_preferences`, o `null` si aún no existe (T18.2.1).
   ///

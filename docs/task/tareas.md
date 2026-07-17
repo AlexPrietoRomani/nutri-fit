@@ -1280,7 +1280,7 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** el prompt incluye las restricciones; con restricción "sin refrigerador" el mensaje al LLM lo refleja.
 - **🎭 Tests de Simulación de Usuario:** declarar "no tengo refri" → pedir un plan → el plan evita cosas que requieren refrigeración / ofrece alternativas.
 
-### SF18.8: Catálogo por ingredientes + platos componibles [ ]
+### SF18.8: Catálogo por ingredientes + platos componibles [X]
 
 > **Dependencia:** ejecutar ANTES de SF18.5 — los micronutrientes se cuelgan del ingrediente (macros por 100 g), no del plato. Requiere `docker compose down -v` (pedir confirmación explícita).
 
@@ -1302,12 +1302,12 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** `macrosFromIngredients` suma correcto (caso conocido: 100 g pechuga + 300 g arroz → kcal/prot/carb/grasa esperados ±1); plato sin composición devuelve sus macros planas.
 - **🎭 Tests de Simulación de Usuario:** elegir "arroz con pollo" → ver que se descompone en sus ingredientes con gramos.
 
-#### T18.8.3: UI de plato componible (editar porciones) [ ]
+#### T18.8.3: UI de plato componible (editar porciones) [X]
 - **🧠 Explicación:** Al registrar un plato, el usuario debe poder tomarlo completo o ver/editar sus ingredientes (cambiar gramos/ml, quitar, agregar otro) y ver los macros actualizarse en vivo, antes de guardar en el diario.
 - **💡 Cómo hacerlo:** en `diary_screen.dart`, al elegir un plato del catálogo, expandir la lista de ingredientes (de `food_catalog.ingredients`) en el diálogo de borrador existente; cada ingrediente con input de cantidad; botón para agregar ingrediente (busca en `ingredients` — seam de T18.8.1); recálculo con el helper de T18.8.2; al confirmar, registrar (plato completo o los ingredientes). Reusar el diálogo de borrador de F9/F16.
 - **Acciones:**
-  - `[ ]` A18.8.3.1: Expansión editable de ingredientes en el diálogo de borrador.
-  - `[ ]` A18.8.3.2: Agregar/quitar ingrediente + recálculo en vivo + registro.
+  - `[X]` A18.8.3.1: Expansión editable de ingredientes en el diálogo de borrador.
+  - `[X]` A18.8.3.2: Agregar/quitar ingrediente + recálculo en vivo + registro.
 - **✅ Tests Unitarios:** widget test — editar la porción de un ingrediente recalcula los macros mostrados; quitar un ingrediente los reduce (con seams, sin Supabase real).
 - **🎭 Tests de Simulación de Usuario:** elegir un plato → cambiar 300 g de arroz a 150 g → ver kcal bajar → guardar.
 
