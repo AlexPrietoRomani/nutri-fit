@@ -126,6 +126,37 @@ FOOD_COUNT=$(echo "$FOOD_BODY" | python -c "import sys,json;print(len(json.load(
 [ "$FOOD_COUNT" = "1" ] && pass "AC13: food_catalog devuelve datos sin token (1 fila con limit=1)" \
   || fail "AC13: food_catalog devolvió $FOOD_COUNT filas (esperado 1)"
 
+# --- T18.8.1 (Fase F18, Ingredientes) — catálogo de ingredientes público, sin token ---
+ING_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$GATEWAY/rest/v1/ingredients?limit=1" -H "Accept-Profile: nutrition")
+[ "$ING_STATUS" = "200" ] && pass "AC14: catálogo nutrition.ingredients accesible sin token (200)" \
+  || fail "AC14: GET ingredients sin token devolvió $ING_STATUS (esperado 200)"
+
+# --- AC15: el catálogo de ingredientes devuelve datos (no vacío) sin token ---
+ING_BODY=$(curl -s "$GATEWAY/rest/v1/ingredients?limit=1" -H "Accept-Profile: nutrition")
+ING_COUNT=$(echo "$ING_BODY" | python -c "import sys,json;print(len(json.load(sys.stdin)))")
+[ "$ING_COUNT" = "1" ] && pass "AC15: ingredients devuelve datos sin token (1 fila con limit=1)" \
+  || fail "AC15: ingredients devolvió $ING_COUNT filas (esperado 1)"
+
+# --- T18.2.1 (Fase F18, Nutricionista + Chat) — A hace upsert de sus preferencias ---
+PREFS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$GATEWAY/rest/v1/food_preferences" \
+  -H "Authorization: Bearer $TOKEN_A" -H "Content-Type: application/json" -H "Content-Profile: nutrition" \
+  -H "Prefer: resolution=merge-duplicates" \
+  -d "{\"user_id\":\"$SUB_A\",\"allergies\":[\"mani\"],\"dislikes\":[\"cebolla\"],\"avoid\":[],\"rarely\":[\"azucar\"],\"constraints\":{\"no_fridge\":true}}")
+[ "$PREFS_STATUS" = "201" ] && pass "AC16: A pudo hacer upsert de sus preferencias (201)" \
+  || fail "AC16: upsert de preferencias propio devolvió $PREFS_STATUS (esperado 201)"
+
+# --- AC17: A lee exactamente su fila de preferencias ---
+BODY_PREFS_A=$(curl -s "$GATEWAY/rest/v1/food_preferences" -H "Authorization: Bearer $TOKEN_A" -H "Accept-Profile: nutrition")
+COUNT_PREFS_A=$(echo "$BODY_PREFS_A" | python -c "import sys,json;print(len(json.load(sys.stdin)))")
+[ "$COUNT_PREFS_A" = "1" ] && pass "AC17: A ve exactamente 1 fila de preferencias (la propia)" \
+  || fail "AC17: A vio $COUNT_PREFS_A filas de preferencias (esperado 1)"
+
+# --- AC18: B no ve las preferencias de A (RLS) ---
+BODY_PREFS_B=$(curl -s "$GATEWAY/rest/v1/food_preferences" -H "Authorization: Bearer $TOKEN_B" -H "Accept-Profile: nutrition")
+COUNT_PREFS_B=$(echo "$BODY_PREFS_B" | python -c "import sys,json;print(len(json.load(sys.stdin)))")
+[ "$COUNT_PREFS_B" = "0" ] && pass "AC18: B ve 0 preferencias de A (RLS)" \
+  || fail "AC18: B vio $COUNT_PREFS_B preferencias (esperado 0)"
+
 if [ "$FAIL" = "0" ]; then
   echo "TODOS LOS TESTS E2E DE T10.2.1/T10.2.2 PASARON"
   exit 0

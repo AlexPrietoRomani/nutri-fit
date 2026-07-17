@@ -1201,12 +1201,12 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ### SF18.2: Preferencias y restricciones de nutrición [ ]
 
-#### T18.2.1: Tabla `nutrition.food_preferences` + CRUD [ ]
+#### T18.2.1: Tabla `nutrition.food_preferences` + CRUD [X]
 - **🧠 Explicación:** No hay preferencias persistidas. Una tabla por usuario (RLS, como `meal_plans`) con alergias / disgustos / evitar / incluir-poco / restricciones (sin refri, utensilios faltantes).
 - **💡 Cómo hacerlo:** `docker/postgres/*.sql` nuevo: `nutrition.food_preferences (user_id UUID PK FK, allergies TEXT[], dislikes TEXT[], avoid TEXT[], rarely TEXT[], constraints JSONB, updated_at)` con RLS `auth.uid()=user_id` + `GRANT` a `authenticated` (patrón F10). En `nutrition_provider.dart`, `fetchPreferences`/`savePreferences` (seam de test).
 - **Acciones:**
-  - `[ ]` A18.2.1.1: Tabla `food_preferences` (RLS) montada en compose.
-  - `[ ]` A18.2.1.2: `fetchPreferences`/`savePreferences` en el provider.
+  - `[X]` A18.2.1.1: Tabla `food_preferences` (RLS) montada en compose.
+  - `[X]` A18.2.1.2: `fetchPreferences`/`savePreferences` en el provider.
 - **✅ Tests Unitarios:** RLS con JWT reales (extender `test_auth_rls_e2e.sh`: usuario A no ve prefs de B); provider arma el upsert correcto.
 - **🎭 Tests de Simulación de Usuario:** editar preferencias → persisten y se leen al reabrir.
 
@@ -1252,12 +1252,12 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 ### SF18.5: Micronutrientes con datos reales [ ]
 
-#### T18.5.1: Sourcing INS/CENAN + micros en `food_catalog` [ ]
+#### T18.5.1: Sourcing INS/CENAN + micros en `food_catalog` [X]
 - **🧠 Explicación:** Micronutrientes REALES (no estimados por IA) desde la tabla peruana de composición de alimentos (INS/CENAN). Riesgo: conseguir la fuente en formato usable es incierto → fallback documentado (subconjunto de micros clave para los platos ya en `food_catalog`, marcado como parcial).
 - **💡 Cómo hacerlo:** intentar obtener las "Tablas Peruanas de Composición de Alimentos" (INS/CENAN) en CSV/PDF; extraer micros clave (hierro, calcio, sodio, vitamina C, vitamina A, zinc, etc.). Extender `nutrition.food_catalog` con columnas de micros (o una tabla `food_micronutrients` asociada). Poblar por seed generado. Si la fuente completa no se consigue, documentar el subconjunto/fallback en el `COMMENT` y en el ADR — nunca inventar micros presentándolos como reales.
 - **Acciones:**
-  - `[ ]` A18.5.1.1: Sourcing de la fuente real (o fallback parcial documentado).
-  - `[ ]` A18.5.1.2: Extender `food_catalog` con micros + poblar por seed.
+  - `[X]` A18.5.1.1: Sourcing de la fuente real (o fallback parcial documentado). *(Micros por 100 g sobre `ingredients`, no sobre `food_catalog`: valores estimados de tablas estándar/INS-CENAN, subconjunto de 7 micros clave, marcado como parcial en el COMMENT; no fiables → NULL.)*
+  - `[X]` A18.5.1.2: Extender `ingredients` con micros + poblar por seed.
 - **✅ Tests Unitarios:** `count` de filas con micros; los valores vienen de la fuente (no NULL para los platos cubiertos); lectura pública (extender E2E).
 - **🎭 Tests de Simulación de Usuario:** ver micros reales de un plato del catálogo.
 
@@ -1284,21 +1284,21 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 
 > **Dependencia:** ejecutar ANTES de SF18.5 — los micronutrientes se cuelgan del ingrediente (macros por 100 g), no del plato. Requiere `docker compose down -v` (pedir confirmación explícita).
 
-#### T18.8.1: Tabla `nutrition.ingredients` (macros por 100 g/ml) + seed [ ]
+#### T18.8.1: Tabla `nutrition.ingredients` (macros por 100 g/ml) + seed [X]
 - **🧠 Explicación:** Hoy `food_catalog` solo tiene platos "planos" (arroz con pollo con macros fijas). Falta el nivel ingrediente (pechuga de pollo, muslo, arroz…) con macros por 100 g/ml, que es lo reutilizable y sobre lo que se componen los platos.
 - **💡 Cómo hacerlo:** SQL nuevo en `docker/postgres/`: `nutrition.ingredients (id SERIAL PK, name TEXT UNIQUE, category TEXT, unit TEXT CHECK (unit IN ('g','ml')) DEFAULT 'g', calories_per_100 REAL, protein_per_100 REAL, carbs_per_100 REAL, fat_per_100 REAL)`, con RLS OFF + `GRANT SELECT` público (mismo patrón que `food_catalog`/`exercises`). Seed de ingredientes base peruanos (los que componen los ~50 platos ya existentes: pollo, arroz, papa, aceite, cebolla, ají, etc.), macros marcadas como estimaciones honestas.
 - **Acciones:**
-  - `[ ]` A18.8.1.1: Tabla `ingredients` (lectura pública) montada en compose.
-  - `[ ]` A18.8.1.2: Seed de ingredientes base que cubren los platos actuales.
+  - `[X]` A18.8.1.1: Tabla `ingredients` (lectura pública) montada en compose.
+  - `[X]` A18.8.1.2: Seed de ingredientes base que cubren los platos actuales.
 - **✅ Tests Unitarios:** `count` de filas ≥ N sembradas; extender `test_auth_rls_e2e.sh` (lectura pública de `ingredients` con JWT real, como `food_catalog`).
 - **🎭 Tests de Simulación de Usuario:** buscar un ingrediente (p. ej. "pechuga de pollo") y ver sus macros por 100 g.
 
-#### T18.8.2: Composición de platos + recálculo de macros [ ]
+#### T18.8.2: Composición de platos + recálculo de macros [X]
 - **🧠 Explicación:** Un plato debe poder declararse como conjunto de ingredientes con cantidades (arroz con pollo = pechuga 100 g + arroz 300 g + …), para que al editar/quitar/agregar porciones los macros se recalculen. Compat. hacia atrás: los platos sin composición siguen usando sus macros planas.
 - **💡 Cómo hacerlo:** `food_catalog` gana `ingredients JSONB` (`[{ingredient_id, grams}]`, nullable). Helper puro `macrosFromIngredients(items, ingredientsById)` que suma `qty/100 × por_100` por ingrediente. Si `food_catalog.ingredients` es NULL → usar las macros planas existentes (sin romper F17). No hace falta tabla relacional nueva (JSONB, patrón ya usado en `meals`/`items`). Requiere `down -v` por el cambio de esquema.
 - **Acciones:**
-  - `[ ]` A18.8.2.1: Columna `ingredients` JSONB en `food_catalog` + poblar la composición de un subconjunto de platos peruanos.
-  - `[ ]` A18.8.2.2: Helper de recálculo de macros desde ingredientes (puro, testeable) con fallback a macros planas.
+  - `[X]` A18.8.2.1: Columna `ingredients` JSONB en `food_catalog` + poblar la composición de un subconjunto de platos peruanos.
+  - `[X]` A18.8.2.2: Helper de recálculo de macros desde ingredientes (puro, testeable) con fallback a macros planas.
 - **✅ Tests Unitarios:** `macrosFromIngredients` suma correcto (caso conocido: 100 g pechuga + 300 g arroz → kcal/prot/carb/grasa esperados ±1); plato sin composición devuelve sus macros planas.
 - **🎭 Tests de Simulación de Usuario:** elegir "arroz con pollo" → ver que se descompone en sus ingredientes con gramos.
 

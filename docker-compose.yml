@@ -18,6 +18,9 @@ services:
       - ./docker/postgres/zzzz3_meal_plans.sql:/docker-entrypoint-initdb.d/zzzz3_meal_plans.sql
       - ./docker/postgres/zzzz4_cardio_and_weight.sql:/docker-entrypoint-initdb.d/zzzz4_cardio_and_weight.sql
       - ./docker/postgres/zzzz5_food_catalog.sql:/docker-entrypoint-initdb.d/zzzz5_food_catalog.sql
+      - ./docker/postgres/zzzz6_ingredients.sql:/docker-entrypoint-initdb.d/zzzz6_ingredients.sql
+      - ./docker/postgres/zzzz7_food_catalog_ingredients.sql:/docker-entrypoint-initdb.d/zzzz7_food_catalog_ingredients.sql
+      - ./docker/postgres/zzzz8_food_preferences.sql:/docker-entrypoint-initdb.d/zzzz8_food_preferences.sql
     networks:
       - nutrifit-network
     healthcheck:
