@@ -1199,7 +1199,7 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** con historial mockeado donde el turno previo fue comida, un mensaje "hazlo a 3 semanas" → intención `wants_meal_plan=true` (no workout); conteo de llamadas al LLM sin regresión.
 - **🎭 Tests de Simulación de Usuario:** (Ollama real) pedir plan de comida → "hazlo a 3 semanas" → recibir plan de comida, no rutina.
 
-### SF18.2: Preferencias y restricciones de nutrición [ ]
+### SF18.2: Preferencias y restricciones de nutrición [X]
 
 #### T18.2.1: Tabla `nutrition.food_preferences` + CRUD [X]
 - **🧠 Explicación:** No hay preferencias persistidas. Una tabla por usuario (RLS, como `meal_plans`) con alergias / disgustos / evitar / incluir-poco / restricciones (sin refri, utensilios faltantes).
@@ -1210,12 +1210,12 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** RLS con JWT reales (extender `test_auth_rls_e2e.sh`: usuario A no ve prefs de B); provider arma el upsert correcto.
 - **🎭 Tests de Simulación de Usuario:** editar preferencias → persisten y se leen al reabrir.
 
-#### T18.2.2: UI de preferencias + inyección al prompt [ ]
+#### T18.2.2: UI de preferencias + inyección al prompt [X]
 - **🧠 Explicación:** Pantalla/sección para editar preferencias; el generador de comida debe respetarlas.
 - **💡 Cómo hacerlo:** una pantalla de "Preferencias de nutrición" (accesible desde Ajustes o el Diario) con campos para alergias/disgustos/evitar/incluir-poco/restricciones. En el backend, `_build_meal_plan` (y `/chat-plan`) recibe las preferencias y las antepone al prompt ("evita: …; el usuario es alérgico a: …; no tiene refrigerador").
 - **Acciones:**
-  - `[ ]` A18.2.2.1: Pantalla de edición de preferencias.
-  - `[ ]` A18.2.2.2: Inyección de preferencias al prompt de generación de comida.
+  - `[X]` A18.2.2.1: Pantalla de edición de preferencias.
+  - `[X]` A18.2.2.2: Inyección de preferencias al prompt de generación de comida.
 - **✅ Tests Unitarios:** el prompt construido contiene las alergias/restricciones dadas; widget test de la pantalla (guarda/lee).
 - **🎭 Tests de Simulación de Usuario:** declarar alergia al maní → el plan generado no incluye maní.
 

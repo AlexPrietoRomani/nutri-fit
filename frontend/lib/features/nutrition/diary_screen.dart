@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'nutrition_provider.dart';
+import 'nutrition_preferences_screen.dart';
 import '../ai/ai_provider.dart';
 import '../ai/vision_service.dart';
 import '../ai/chat_fab.dart';
@@ -141,6 +142,13 @@ class _DiaryScreenState extends State<DiaryScreen> {
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.white),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.tune_rounded, color: Color(0xFF2ED573)),
+            tooltip: 'Preferencias de nutrición',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const NutritionPreferencesScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.photo_camera_rounded, color: Color(0xFF2ED573)),
             tooltip: 'Tomar foto con IA',

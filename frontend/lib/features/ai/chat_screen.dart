@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase_config.dart';
 import 'ai_provider.dart';
 import 'ai_settings_screen.dart';
+import '../nutrition/nutrition_provider.dart';
 
 /// Pantalla de chat con el asistente de IA.
 class ChatScreen extends StatefulWidget {
@@ -29,10 +30,26 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _inputCtrl = TextEditingController();
 
+  // Preferencias del usuario (nutrition.food_preferences) para inyectarlas al
+  // chat y que el generador de comidas las respete (T18.2.2). Se cargan una vez
+  // de forma best-effort: si no hay NutritionProvider en el árbol (tests) o
+  // falla la carga, quedan null y el body del request simplemente no las lleva.
+  Map<String, dynamic>? _preferences;
+
   @override
   void initState() {
     super.initState();
     Future.microtask(() => context.read<AiProvider>().loadConfig());
+    Future.microtask(_loadPreferences);
+  }
+
+  Future<void> _loadPreferences() async {
+    try {
+      final prefs = await context.read<NutritionProvider>().fetchPreferences();
+      if (mounted) setState(() => _preferences = prefs);
+    } catch (_) {
+      // best-effort: sin provider o sin fila, el chat sigue igual que antes.
+    }
   }
 
   @override
@@ -45,7 +62,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = preset ?? _inputCtrl.text.trim();
     if (text.isEmpty) return;
     _inputCtrl.clear();
-    context.read<AiProvider>().sendMessage(text);
+    context.read<AiProvider>().sendMessage(text, preferences: _preferences);
   }
 
   void _openSettings() {

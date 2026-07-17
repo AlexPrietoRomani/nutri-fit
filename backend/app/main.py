@@ -329,19 +329,70 @@ class MealPlanRequest(BaseModel):
 MAX_PLAN_DAYS = 28  # Tope de días para no explotar tokens en planes multi-día.
 
 
-def _build_single_meal_day(ai: AIConfig, goals: dict, preferences: Optional[str], avoid: Optional[list] = None) -> list:
+def _format_preferences(prefs: Optional[dict]) -> str:
+    """Convierte el dict de `nutrition.food_preferences` en instrucciones claras
+    para el prompt del generador de comidas.
+
+    Las alergias se marcan como restricción DURA (nunca incluir). El resto son
+    preferencias blandas. Devuelve "" si no hay preferencias relevantes, para no
+    ensuciar el prompt cuando el usuario no configuró nada.
+    """
+    if not prefs:
+        return ""
+    partes: list = []
+    allergies = [str(x) for x in (prefs.get("allergies") or []) if x]
+    if allergies:
+        partes.append(
+            f"El usuario es ALÉRGICO a: {', '.join(allergies)} "
+            "(NUNCA los incluyas, es una restricción DURA)."
+        )
+    dislikes = [str(x) for x in (prefs.get("dislikes") or []) if x]
+    if dislikes:
+        partes.append(f"No le gustan: {', '.join(dislikes)}.")
+    avoid = [str(x) for x in (prefs.get("avoid") or []) if x]
+    if avoid:
+        partes.append(f"Evita (no alérgico): {', '.join(avoid)}.")
+    rarely = [str(x) for x in (prefs.get("rarely") or []) if x]
+    if rarely:
+        partes.append(f"Incluir muy poco: {', '.join(rarely)}.")
+    constraints = prefs.get("constraints") or {}
+    restr: list = []
+    if constraints.get("no_fridge"):
+        restr.append("no tiene refrigerador")
+    missing = [str(x) for x in (constraints.get("missing_utensils") or []) if x]
+    if missing:
+        restr.append(f"le faltan estos utensilios: {', '.join(missing)}")
+    if restr:
+        partes.append(f"Restricciones: {'; '.join(restr)}.")
+    return " ".join(partes)
+
+
+def _build_single_meal_day(
+    ai: AIConfig,
+    goals: dict,
+    preferences: Optional[str],
+    avoid: Optional[list] = None,
+    preferences_block: str = "",
+) -> list:
     """Genera las comidas (lista `meals`) de UN día coherente con las metas.
 
     `avoid` es una lista de food_names ya usados en días previos: se instruye al
     modelo a no repetirlos para forzar variedad entre días de un plan semanal.
+    `preferences_block` es el texto ya formateado por `_format_preferences`; se
+    antepone con énfasis en que las alergias son restricciones DURAS.
     """
     variar = (
         f"\nNO repitas estos platos ya usados en días previos: {json.dumps(avoid, ensure_ascii=False)}. "
         "Propón comidas DISTINTAS."
         if avoid else ""
     )
+    bloque_prefs = (
+        f"RESTRICCIONES Y PREFERENCIAS DEL USUARIO (respétalas SIEMPRE; las "
+        f"alergias son restricciones DURAS y nunca se incluyen): {preferences_block}\n"
+        if preferences_block else ""
+    )
     prompt = (
-        f"{FITNESS_SYSTEM}\nGenera un plan de comidas para UN día que cumpla estas metas: "
+        f"{FITNESS_SYSTEM}\n{bloque_prefs}Genera un plan de comidas para UN día que cumpla estas metas: "
         f"{json.dumps(goals, ensure_ascii=False)}. "
         f"Preferencias: {preferences or 'ninguna'}.{variar}\n"
         "Devuelve SOLO un objeto JSON con esta forma exacta:\n"
@@ -354,20 +405,30 @@ def _build_single_meal_day(ai: AIConfig, goals: dict, preferences: Optional[str]
     return data["meals"]
 
 
-def _build_meal_plan(ai: AIConfig, goals: dict, preferences: Optional[str], num_days: int = 1) -> dict:
+def _build_meal_plan(
+    ai: AIConfig,
+    goals: dict,
+    preferences: Optional[str],
+    num_days: int = 1,
+    preferences_block: str = "",
+) -> dict:
     """Genera un plan de comidas coherente con las metas del usuario.
 
     Con `num_days<=1` devuelve el shape plano `{"meals": [...]}` (compatibilidad
     hacia atrás). Con `num_days>1` devuelve `{"days": [{"day": n, "meals": [...]}]}`
     variando los platos entre días para que un plan semanal no repita el mismo menú.
+    `preferences_block` es el texto de `_format_preferences` (alergias/dislikes/…)
+    que se antepone al prompt; se combina con el string libre `preferences`.
     """
     if num_days <= 1:
-        return {"meals": _build_single_meal_day(ai, goals, preferences)}
+        return {"meals": _build_single_meal_day(ai, goals, preferences, preferences_block=preferences_block)}
     num_days = min(num_days, MAX_PLAN_DAYS)
     days: list = []
     used_names: list = []
     for day in range(1, num_days + 1):
-        meals = _build_single_meal_day(ai, goals, preferences, avoid=used_names[-20:])
+        meals = _build_single_meal_day(
+            ai, goals, preferences, avoid=used_names[-20:], preferences_block=preferences_block
+        )
         used_names.extend(m.get("food_name") for m in meals if m.get("food_name"))
         days.append({"day": day, "meals": meals})
     return {"days": days}
@@ -490,6 +551,10 @@ class ChatPlanRequest(BaseModel):
     # Historial de la conversación (el servidor es stateless: el historial viaja
     # por request). Cada item: {"role": "user"|"assistant", "text": str}.
     history: Optional[list] = None
+    # Preferencias/restricciones del usuario (fila de nutrition.food_preferences:
+    # allergies/dislikes/avoid/rarely/constraints). Se inyectan al prompt del
+    # generador de comidas vía _format_preferences (T18.2.2).
+    preferences: Optional[dict] = None
     ai: AIConfig
 
 
@@ -628,7 +693,10 @@ def chat_plan(req: ChatPlanRequest):
         # mínima: un dict de goals vacío hace que el LLM rechace la petición (probado con
         # gemma4:e4b), y aquí no hay perfil real del que sacar target_calories/macros.
         goals = (req.profile or {}).get("goals") or {"objetivo": intent.get("goal") or "maintenance"}
-        meal_plan = _build_meal_plan(req.ai, goals, intent.get("preferences"), num_days)
+        meal_plan = _build_meal_plan(
+            req.ai, goals, intent.get("preferences"), num_days,
+            preferences_block=_format_preferences(req.preferences),
+        )
     # Reply determinista: nunca se le pide al LLM que "resuma qué hizo", porque
     # eso lo lleva a alucinar acciones (p. ej. afirmar que guardó una rutina)
     # que el backend nunca ejecutó. Ver SF13.1/T13.2.2.

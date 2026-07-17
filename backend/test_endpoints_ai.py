@@ -429,3 +429,83 @@ def test_identify_machine_con_ai(monkeypatch):
     r = client.post("/identify-machine", files=_IMG, data={"ai": _json.dumps(AICFG)})
     assert r.status_code == 200
     assert r.json()["machine_name"] == "Leg Press"
+
+
+# --- T18.2.2: preferencias inyectadas al prompt del generador de comidas ---
+
+def test_format_preferences_marca_alergias_como_duras():
+    prefs = {
+        "allergies": ["maní", "mariscos"],
+        "dislikes": ["hígado"],
+        "avoid": ["coliflor"],
+        "rarely": ["azúcar"],
+        "constraints": {"no_fridge": True, "missing_utensils": ["horno"]},
+    }
+    texto = main._format_preferences(prefs)
+    assert "maní" in texto and "mariscos" in texto
+    assert "ALÉRGICO" in texto and "DURA" in texto
+    assert "hígado" in texto
+    assert "coliflor" in texto
+    assert "azúcar" in texto
+    assert "refrigerador" in texto
+    assert "horno" in texto
+
+
+def test_format_preferences_vacio_devuelve_string_vacio():
+    assert main._format_preferences(None) == ""
+    assert main._format_preferences({}) == ""
+
+
+def test_chat_plan_inyecta_alergias_en_el_prompt(monkeypatch):
+    """El prompt que llega al LLM para armar las comidas contiene la alergia
+    y su marca de restricción dura cuando se envían `preferences`."""
+    captured = {"meal_prompt": None}
+
+    def fake_ai(cfg, prompt, want_json=False):
+        if "wants_workout" in prompt:
+            return _json.dumps({
+                "wants_workout": False, "wants_meal_plan": True,
+                "equipment": [], "has_cardio_equipment": False,
+                "goal": "maintenance", "preferences": None,
+            })
+        if "meals" in prompt:  # prompt de _build_single_meal_day
+            captured["meal_prompt"] = prompt
+            return '{"meals":[{"meal_type":"dinner","food_name":"Pescado","calories":350,' \
+                   '"protein_g":35,"carbs_g":20,"fat_g":8,"serving_size_g":250}]}'
+        return "Aquí tienes tu plan de comidas."
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={
+        "message": "quiero un plan de comidas",
+        "preferences": {"allergies": ["maní"]},
+        "ai": AICFG,
+    })
+    assert r.status_code == 200
+    assert r.json()["meal_plan"] is not None
+    assert captured["meal_prompt"] is not None
+    assert "maní" in captured["meal_prompt"]
+    assert "ALÉRGICO" in captured["meal_prompt"]
+    assert "DURA" in captured["meal_prompt"]
+
+
+def test_chat_plan_sin_preferences_no_regresion(monkeypatch):
+    """Sin `preferences` el prompt de comidas no lleva el bloque de restricciones."""
+    captured = {"meal_prompt": None}
+
+    def fake_ai(cfg, prompt, want_json=False):
+        if "wants_workout" in prompt:
+            return _json.dumps({
+                "wants_workout": False, "wants_meal_plan": True,
+                "equipment": [], "has_cardio_equipment": False,
+                "goal": "maintenance", "preferences": None,
+            })
+        if "meals" in prompt:
+            captured["meal_prompt"] = prompt
+            return '{"meals":[{"meal_type":"dinner","food_name":"Pescado","calories":350,' \
+                   '"protein_g":35,"carbs_g":20,"fat_g":8,"serving_size_g":250}]}'
+        return "Aquí tienes tu plan de comidas."
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={"message": "quiero un plan de comidas", "ai": AICFG})
+    assert r.status_code == 200
+    assert "RESTRICCIONES Y PREFERENCIAS" not in captured["meal_prompt"]

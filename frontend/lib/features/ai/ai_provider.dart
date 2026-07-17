@@ -93,7 +93,8 @@ class AiProvider extends ChangeNotifier {
   }
 
   /// Envía un mensaje al endpoint /chat-plan (orquestador F11) con la config del proveedor.
-  Future<void> sendMessage(String message, {Map<String, dynamic>? profile}) async {
+  Future<void> sendMessage(String message,
+      {Map<String, dynamic>? profile, Map<String, dynamic>? preferences}) async {
     if (_config == null) {
       _error = 'Configura un proveedor de IA en Ajustes.';
       notifyListeners();
@@ -120,6 +121,7 @@ class AiProvider extends ChangeNotifier {
         body: jsonEncode({
           'message': message,
           if (profile != null) 'profile': profile,
+          if (preferences != null) 'preferences': preferences,
           'history': recentHistory,
           'ai': _config!.toJson(),
         }),
