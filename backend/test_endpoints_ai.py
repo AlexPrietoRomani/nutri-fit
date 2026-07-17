@@ -509,3 +509,95 @@ def test_chat_plan_sin_preferences_no_regresion(monkeypatch):
     r = client.post("/chat-plan", json={"message": "quiero un plan de comidas", "ai": AICFG})
     assert r.status_code == 200
     assert "RESTRICCIONES Y PREFERENCIAS" not in captured["meal_prompt"]
+
+
+# --- T18.6.1: alternativas por restricciones + "dame una alternativa a X" ---
+
+def test_chat_plan_alternativa_devuelve_texto(monkeypatch):
+    """"no consigo quinua, dame otra opción" con historial de un plan → intent
+    de alternativa, reply de texto (no null) y sin workout/meal_plan. El prompt
+    de alternativa incluye el historial y el target."""
+    captured = {"alt_prompt": None}
+
+    def fake_ai(cfg, prompt, want_json=False):
+        if "wants_workout" in prompt:  # _extract_intent
+            return _json.dumps({
+                "wants_workout": False, "wants_meal_plan": False,
+                "equipment": [], "has_cardio_equipment": False,
+                "goal": "maintenance", "preferences": None, "num_days": 1,
+                "wants_alternative": True, "alternative_target": "quinua",
+                "needs_clarification": False, "clarifying_question": None,
+            })
+        captured["alt_prompt"] = prompt  # _build_alternative_reply
+        return "Puedes usar arroz integral, avena o lentejas en lugar de la quinua."
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={
+        "message": "no consigo quinua, dame otra opción",
+        "history": [
+            {"role": "user", "text": "plan de comidas para bajar de peso"},
+            {"role": "assistant", "text": "Cena: bowl de quinua con verduras."},
+        ],
+        "ai": AICFG,
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reply"]  # texto no vacío / no null
+    assert body["workout"] is None
+    assert body["meal_plan"] is None
+    assert captured["alt_prompt"] is not None
+    assert "quinua" in captured["alt_prompt"]
+    assert "bowl de quinua" in captured["alt_prompt"]  # historial inyectado
+
+
+def test_chat_plan_peticion_plan_no_se_desvia_a_alternativa(monkeypatch):
+    """Aunque wants_alternative sea true, una petición de plan completo genera
+    plan (no se desvía a la respuesta de texto de alternativa)."""
+    def fake_ai(cfg, prompt, want_json=False):
+        if "wants_workout" in prompt:
+            return _json.dumps({
+                "wants_workout": False, "wants_meal_plan": True,
+                "equipment": [], "has_cardio_equipment": False,
+                "goal": "maintenance", "preferences": None, "num_days": 1,
+                "wants_alternative": True, "alternative_target": "quinua",
+                "needs_clarification": False, "clarifying_question": None,
+            })
+        if "meals" in prompt:
+            return '{"meals":[{"meal_type":"dinner","food_name":"Pescado","calories":350,' \
+                   '"protein_g":35,"carbs_g":20,"fat_g":8,"serving_size_g":250}]}'
+        return "Y tu plan de comidas para hoy."
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={"message": "un plan de comidas sin quinua", "ai": AICFG})
+    assert r.status_code == 200
+    assert r.json()["meal_plan"] is not None
+
+
+def test_meal_prompt_pide_alternativa_con_restricciones(monkeypatch):
+    """Con constraints (sin refri) el prompt de comidas instruye proponer una
+    alternativa accesible en vez de omitir el ingrediente."""
+    captured = {"meal_prompt": None}
+
+    def fake_ai(cfg, prompt, want_json=False):
+        if "wants_workout" in prompt:
+            return _json.dumps({
+                "wants_workout": False, "wants_meal_plan": True,
+                "equipment": [], "has_cardio_equipment": False,
+                "goal": "maintenance", "preferences": None, "num_days": 1,
+                "wants_alternative": False, "alternative_target": None,
+                "needs_clarification": False, "clarifying_question": None,
+            })
+        if "meals" in prompt:
+            captured["meal_prompt"] = prompt
+            return '{"meals":[{"meal_type":"dinner","food_name":"Ensalada","calories":300,' \
+                   '"protein_g":20,"carbs_g":25,"fat_g":10,"serving_size_g":250}]}'
+        return "Y tu plan de comidas para hoy."
+
+    monkeypatch.setattr(main, "ai_generate", fake_ai)
+    r = client.post("/chat-plan", json={
+        "message": "plan de comidas",
+        "preferences": {"constraints": {"no_fridge": True}},
+        "ai": AICFG,
+    })
+    assert r.status_code == 200
+    assert "alternativ" in captured["meal_prompt"].lower()

@@ -391,6 +391,15 @@ def _build_single_meal_day(
         f"alergias son restricciones DURAS y nunca se incluyen): {preferences_block}\n"
         if preferences_block else ""
     )
+    # Si hay restricciones logísticas (sin refri/utensilios faltantes), pide una
+    # ALTERNATIVA accesible en lugar de omitir el ingrediente que choca.
+    if "Restricciones:" in preferences_block:
+        bloque_prefs += (
+            "Si una receta requiere algo que el usuario no tiene (p. ej. "
+            "refrigeración sin refri, o un utensilio faltante), NO la omitas: "
+            "propón una versión o ingrediente alternativo accesible que no lo "
+            "necesite.\n"
+        )
     prompt = (
         f"{FITNESS_SYSTEM}\n{bloque_prefs}Genera un plan de comidas para UN día que cumpla estas metas: "
         f"{json.dumps(goals, ensure_ascii=False)}. "
@@ -599,7 +608,12 @@ def _extract_intent(ai: AIConfig, message: str, history: Optional[list] = None) 
         '"has_cardio_equipment": bool, '
         '"goal": "weight_loss|muscle_gain|maintenance", "preferences": "string o null", '
         '"num_days": int, '
+        '"wants_alternative": bool, "alternative_target": "string o null", '
         '"needs_clarification": bool, "clarifying_question": "string o null"}\n'
+        "wants_alternative=true cuando el usuario pide un SUSTITUTO de un "
+        "ingrediente/comida/ejercicio concreto en vez de un plan nuevo "
+        "(p. ej. \"dame otra opción a X\", \"no consigo X\", \"con qué reemplazo X\"); "
+        "alternative_target = ese X (el ingrediente/comida/ejercicio), o null.\n"
         "num_days = cuántos días cubre el plan pedido: \"semana\"/\"plan semanal\"/"
         "\"rutina de la semana\"=7, \"2 semanas\"=14, \"3 semanas\"=21; si el usuario da un "
         "número explícito de días úsalo; si no especifica duración, num_days=1. "
@@ -645,6 +659,36 @@ def analyze_progress(req: ProgressRequest):
     return {"analysis": _run_ai(req.ai, prompt)}
 
 
+def _build_alternative_reply(
+    ai: AIConfig,
+    target: Optional[str],
+    history: Optional[list] = None,
+    preferences: Optional[dict] = None,
+) -> str:
+    """Genera texto libre con 2-3 sustitutos accesibles para `target`.
+
+    Usa el historial (para que la alternativa sea coherente con el plan previo) y
+    las preferencias/restricciones del usuario. No devuelve un plan estructurado.
+    """
+    context = ""
+    if history:
+        turnos = [
+            f"{'usuario' if item.get('role') == 'user' else 'asistente'}: {item.get('text', '')}"
+            for item in history[-10:]
+        ]
+        context = "Contexto de la conversación (turnos previos):\n" + "\n".join(turnos) + "\n\n"
+    prefs_block = _format_preferences(preferences)
+    prefs = f"Preferencias y restricciones del usuario: {prefs_block}\n" if prefs_block else ""
+    prompt = (
+        f"{FITNESS_SYSTEM}\n{context}{prefs}"
+        f"El usuario no consigue o quiere reemplazar: \"{target or 'un ingrediente del plan'}\". "
+        "Sugiere 2-3 sustitutos accesibles y coherentes con lo mencionado en el "
+        "contexto y sus preferencias. Responde en español, en texto breve; NO "
+        "devuelvas JSON ni un plan estructurado."
+    )
+    return _run_ai(ai, prompt)
+
+
 @app.post("/chat-plan", response_model=ChatPlanResponse)
 def chat_plan(req: ChatPlanRequest):
     """Orquestador: interpreta un mensaje libre y arma rutina y/o plan de comidas."""
@@ -657,6 +701,19 @@ def chat_plan(req: ChatPlanRequest):
             reply=intent.get("clarifying_question")
             or "¿Podrías darme más detalle? Dime qué equipo/lugar tienes (casa, gym o sin equipo) y tu objetivo.",
             needs_clarification=True,
+            workout=None,
+            meal_plan=None,
+        )
+    # Petición de alternativa ("no consigo quinua, dame otra opción"): responde con
+    # texto libre (2-3 sustitutos coherentes con el historial), no con un plan
+    # estructurado. Cede la prioridad si el usuario en realidad pide un plan completo.
+    if intent.get("wants_alternative") and not (
+        intent.get("wants_workout") or intent.get("wants_meal_plan")
+    ):
+        return ChatPlanResponse(
+            reply=_build_alternative_reply(
+                req.ai, intent.get("alternative_target"), req.history, req.preferences
+            ),
             workout=None,
             meal_plan=None,
         )

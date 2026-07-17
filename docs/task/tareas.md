@@ -1269,14 +1269,14 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** widget test — un plato con micros los muestra; sin micros, no rompe.
 - **🎭 Tests de Simulación de Usuario:** buscar un plato → ver sus micronutrientes.
 
-### SF18.6: Alternativas por restricciones [ ]
+### SF18.6: Alternativas por restricciones [X]
 
-#### T18.6.1: Alternativas en el generador y en el chat [ ]
+#### T18.6.1: Alternativas en el generador y en el chat [X]
 - **🧠 Explicación:** Dar sustituciones cuando el usuario no tiene refri/utensilio o un ingrediente es difícil de conseguir.
 - **💡 Cómo hacerlo:** inyectar las restricciones (de SF18.2 y del contexto SF18.1) al prompt del generador para que proponga alternativas; en el chat, soportar "dame una alternativa a X" (con el historial, el LLM sugiere sustitutos coherentes con el plan).
 - **Acciones:**
-  - `[ ]` A18.6.1.1: Inyección de restricciones al prompt (alternativas).
-  - `[ ]` A18.6.1.2: "Dame una alternativa a X" en el chat (usa el historial).
+  - `[X]` A18.6.1.1: Inyección de restricciones al prompt (alternativas).
+  - `[X]` A18.6.1.2: "Dame una alternativa a X" en el chat (usa el historial).
 - **✅ Tests Unitarios:** el prompt incluye las restricciones; con restricción "sin refrigerador" el mensaje al LLM lo refleja.
 - **🎭 Tests de Simulación de Usuario:** declarar "no tengo refri" → pedir un plan → el plan evita cosas que requieren refrigeración / ofrece alternativas.
 
