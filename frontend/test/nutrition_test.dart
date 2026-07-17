@@ -367,4 +367,53 @@ void main() {
       expect(macros['fat_g'], 28.0);
     });
   });
+
+  group('microsFromIngredients (T18.5.2)', () {
+    // Subconjunto del seed zzzz6_ingredients.sql (micros por 100 g):
+    // 1 pechuga pollo: iron_mg=0.7, calcium_mg=15
+    // 9 arroz blanco:  iron_mg=0.2, calcium_mg=10
+    // 18 olluco:       sodium_mg=NULL, zinc_mg=NULL, iron_mg=1.1
+    final ingredientsById = {
+      1: {'iron_mg': 0.7, 'calcium_mg': 15},
+      9: {'iron_mg': 0.2, 'calcium_mg': 10},
+      18: {'iron_mg': 1.1, 'sodium_mg': null, 'zinc_mg': null},
+    };
+
+    test('caso conocido: 200 g pechuga + 100 g arroz', () {
+      // iron    -> 2*0.7 + 1*0.2 = 1.6 mg
+      // calcium -> 2*15  + 1*10  = 40 mg
+      final micros = microsFromIngredients(
+        [
+          {'ingredient_id': 1, 'grams': 200},
+          {'ingredient_id': 9, 'grams': 100},
+        ],
+        ingredientsById,
+      );
+      expect(micros['iron_mg'], closeTo(1.6, 0.05));
+      expect(micros['calcium_mg'], closeTo(40.0, 0.05));
+    });
+
+    test('micro con todos NULL se omite (no 0 engañoso)', () {
+      final micros = microsFromIngredients(
+        [
+          {'ingredient_id': 18, 'grams': 200},
+        ],
+        ingredientsById,
+      );
+      // iron presente (aportado por el olluco), sodium/zinc NULL -> ausentes.
+      expect(micros.containsKey('iron_mg'), isTrue);
+      expect(micros.containsKey('sodium_mg'), isFalse);
+      expect(micros.containsKey('zinc_mg'), isFalse);
+    });
+
+    test('ignora ingredient_id ausente en el mapa', () {
+      final micros = microsFromIngredients(
+        [
+          {'ingredient_id': 999, 'grams': 500},
+        ],
+        ingredientsById,
+      );
+      expect(micros, isEmpty);
+    });
+  });
 }

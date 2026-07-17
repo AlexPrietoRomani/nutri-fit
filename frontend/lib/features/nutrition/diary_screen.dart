@@ -1247,6 +1247,7 @@ class _ComposableDishDialogState extends State<_ComposableDishDialog> {
   @override
   Widget build(BuildContext context) {
     final macros = macrosFromIngredients(_items, _ingredientsById);
+    final micros = microsFromIngredients(_items, _ingredientsById);
     final dishName = widget.dish['name']?.toString() ?? 'Plato';
 
     return AlertDialog(
@@ -1316,6 +1317,29 @@ class _ComposableDishDialogState extends State<_ComposableDishDialog> {
                     onPressed: _addIngredient,
                     icon: const Icon(Icons.add, size: 18, color: Color(0xFF2ED573)),
                     label: const Text('Agregar ingrediente', style: TextStyle(color: Color(0xFF2ED573), fontSize: 13)),
+                  ),
+                  const Divider(color: Colors.white24, height: 20),
+                  const Text(
+                    'Micronutrientes (estimado, parcial)',
+                    style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    key: const Key('composable_micros'),
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: [
+                      for (final entry in microNutrients.entries)
+                        Text(
+                          micros.containsKey(entry.key)
+                              ? '${entry.value.$1}: ${micros[entry.key]} ${entry.value.$2}'
+                              : '${entry.value.$1}: s/d',
+                          style: TextStyle(
+                            color: micros.containsKey(entry.key) ? Colors.white : Colors.white38,
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ),

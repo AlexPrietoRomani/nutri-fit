@@ -1250,7 +1250,7 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** widget test — un plan de N días renderiza el selector y muestra el día elegido; uno de 1 día se ve sin selector.
 - **🎭 Tests de Simulación de Usuario:** abrir un plan semanal guardado → cambiar de día → ver contenido distinto.
 
-### SF18.5: Micronutrientes con datos reales [ ]
+### SF18.5: Micronutrientes con datos reales [X]
 
 #### T18.5.1: Sourcing INS/CENAN + micros en `food_catalog` [X]
 - **🧠 Explicación:** Micronutrientes REALES (no estimados por IA) desde la tabla peruana de composición de alimentos (INS/CENAN). Riesgo: conseguir la fuente en formato usable es incierto → fallback documentado (subconjunto de micros clave para los platos ya en `food_catalog`, marcado como parcial).
@@ -1261,11 +1261,11 @@ Este tablero sigue el desarrollo fase a fase de la infraestructura y el diseño 
 - **✅ Tests Unitarios:** `count` de filas con micros; los valores vienen de la fuente (no NULL para los platos cubiertos); lectura pública (extender E2E).
 - **🎭 Tests de Simulación de Usuario:** ver micros reales de un plato del catálogo.
 
-#### T18.5.2: UI de micronutrientes [ ]
+#### T18.5.2: UI de micronutrientes [X]
 - **🧠 Explicación:** Mostrar micros en el detalle de comida/planes, además de macros.
 - **💡 Cómo hacerlo:** en el diálogo de borrador/detalle de comida y en las tarjetas de plan, una sección de micros (los que existan), marcando si es dato parcial.
 - **Acciones:**
-  - `[ ]` A18.5.2.1: Sección de micros en la UI de comida/planes.
+  - `[X]` A18.5.2.1: Sección de micros en la UI de comida/planes.
 - **✅ Tests Unitarios:** widget test — un plato con micros los muestra; sin micros, no rompe.
 - **🎭 Tests de Simulación de Usuario:** buscar un plato → ver sus micronutrientes.
 

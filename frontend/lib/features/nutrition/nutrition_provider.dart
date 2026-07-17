@@ -37,6 +37,52 @@ Map<String, double> macrosFromIngredients(
   };
 }
 
+/// Los 7 micronutrientes por 100 g/ml que `nutrition.ingredients` puede traer.
+/// Mapea la clave de columna -> (etiqueta legible, unidad). Orden estable.
+const microNutrients = <String, (String, String)>{
+  'iron_mg': ('Hierro', 'mg'),
+  'calcium_mg': ('Calcio', 'mg'),
+  'sodium_mg': ('Sodio', 'mg'),
+  'potassium_mg': ('Potasio', 'mg'),
+  'vitamin_c_mg': ('Vitamina C', 'mg'),
+  'vitamin_a_ug': ('Vitamina A', 'µg'),
+  'zinc_mg': ('Zinc', 'mg'),
+};
+
+/// Suma los micronutrientes de un plato desde su composición (T18.5.2).
+/// Función PURA y testeable sin Supabase.
+///
+/// Como los micros son un subconjunto PARCIAL y algunos ingredientes los tienen
+/// NULL, los NULL se IGNORAN (no cuentan como 0). Un micro solo aparece en el
+/// resultado si al menos un ingrediente aportó un valor no-NULL para él; si
+/// todos son NULL/ausentes, el micro se OMITE (ausencia honesta, no un 0 falso).
+///
+/// [items] es `{ingredient_id, grams}`; [ingredientsById] mapea id -> fila.
+/// Suma `grams/100 * <micro>` y redondea a 1 decimal.
+Map<String, double> microsFromIngredients(
+  List<Map<String, dynamic>> items,
+  Map<int, Map<String, dynamic>> ingredientsById,
+) {
+  final totals = <String, double>{};
+  final present = <String>{};
+  for (final item in items) {
+    final id = (item['ingredient_id'] as num?)?.toInt();
+    final ing = id == null ? null : ingredientsById[id];
+    if (ing == null) continue;
+    final factor = ((item['grams'] as num?)?.toDouble() ?? 0) / 100.0;
+    for (final key in microNutrients.keys) {
+      final raw = ing[key] as num?;
+      if (raw == null) continue; // NULL: no cuenta
+      present.add(key);
+      totals[key] = (totals[key] ?? 0) + factor * raw.toDouble();
+    }
+  }
+  return {
+    for (final key in microNutrients.keys)
+      if (present.contains(key)) key: (totals[key]! * 10).round() / 10,
+  };
+}
+
 /// Macros efectivos de un plato con FALLBACK a macros planas (T18.8.2).
 ///
 /// Si el plato trae composición (`dish['ingredients']` no null ni vacío), la

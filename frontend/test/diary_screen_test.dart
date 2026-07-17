@@ -242,8 +242,8 @@ void main() {
 
   group('Plato componible — editar porciones (T18.8.3)', () {
     final ingredients = [
-      {'id': 1, 'name': 'Arroz', 'calories_per_100': 130, 'protein_per_100': 2.7, 'carbs_per_100': 28, 'fat_per_100': 0.3},
-      {'id': 2, 'name': 'Pollo', 'calories_per_100': 165, 'protein_per_100': 31, 'carbs_per_100': 0, 'fat_per_100': 3.6},
+      {'id': 1, 'name': 'Arroz', 'calories_per_100': 130, 'protein_per_100': 2.7, 'carbs_per_100': 28, 'fat_per_100': 0.3, 'iron_mg': 0.2, 'sodium_mg': null},
+      {'id': 2, 'name': 'Pollo', 'calories_per_100': 165, 'protein_per_100': 31, 'carbs_per_100': 0, 'fat_per_100': 3.6, 'iron_mg': 0.7, 'sodium_mg': null},
     ];
     final dishWithComp = {
       'id': 1,
@@ -286,6 +286,23 @@ void main() {
       await tester.enterText(find.byKey(const Key('composable_grams_0')), '50');
       await tester.pumpAndSettle();
       expect(find.text('230 kcal · P 32g · C 14g · G 4g'), findsOneWidget);
+    });
+
+    testWidgets('muestra micronutrientes (parcial) y cambian con los gramos', (tester) async {
+      final provider = _CatalogFakeProvider([dishWithComp], ingredients: ingredients);
+      await _openComposable(tester, provider);
+
+      // Sección presente y marcada como estimación parcial.
+      expect(find.text('Micronutrientes (estimado, parcial)'), findsOneWidget);
+      // iron: 0.2 (arroz 100g) + 0.7 (pollo 100g) = 0.9 mg.
+      expect(find.text('Hierro: 0.9 mg'), findsOneWidget);
+      // sodium NULL en ambos ingredientes -> s/d, no un 0 engañoso.
+      expect(find.text('Sodio: s/d'), findsOneWidget);
+
+      // Reduce el arroz de 100 a 50 g -> iron 0.1 + 0.7 = 0.8 mg.
+      await tester.enterText(find.byKey(const Key('composable_grams_0')), '50');
+      await tester.pumpAndSettle();
+      expect(find.text('Hierro: 0.8 mg'), findsOneWidget);
     });
 
     testWidgets('quitar un ingrediente reduce los macros', (tester) async {
